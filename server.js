@@ -150,13 +150,6 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
-// Rota explícita para o manifesto
-app.get('/:config/manifest.json', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'application/json');
-  res.send(JSON.stringify(manifest));
-});
-
 // Addon router
 const addonRouter = getRouter(builder.getInterface());
 app.use('/', addonRouter);

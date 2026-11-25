@@ -101,13 +101,6 @@ function listFromJs(js) {
   return [];
 }
 
-async _ordered(type, query, page) {
-  var q = { type: type, action: 'get_ordered_list', p: String(page || 1), JsHttpRequest: '1-xml' };
-  Object.keys(query || {}).forEach(function (k) { q[k] = query[k]; });
-  var data = await this._get(q);
-  return listFromJs(data && data.js);
-}
-
 class StalkerClient {
   constructor(cfg) {
     this.portalInput = cfg.portalUrl || '';
@@ -238,27 +231,35 @@ class StalkerClient {
     return { tv, movies, series };
   }
 
-  async getChannels(genreIds) {
-  var out = [];
-  var genres = (genreIds && genreIds.length) ? genreIds : [''];
-  for (var i = 0; i < genres.length; i++) {
-    var query = genres[i] ? { genre: String(genres[i]) } : {};
-    for (var page = 1; page <= 5; page++) {
-      var chunk = await this._ordered('itv', query, page);
-      if (!chunk.length) break;
-      out = out.concat(chunk);
-      if (chunk.length < 8) break;
-    }
-    if (out.length) break;
+  async _ordered(type, query, page) {
+    var q = { type: type, action: 'get_ordered_list', p: String(page || 1), JsHttpRequest: '1-xml' };
+    var extra = query || {};
+    Object.keys(extra).forEach(function (k) { q[k] = extra[k]; });
+    var data = await this._get(q);
+    return listFromJs(data && data.js);
   }
-  return out;
-}
 
-async getVodList(categoryId, page) {
-  var query = categoryId ? { category: String(categoryId) } : {};
-  return this._ordered('vod', query, page || 1);
-}
+  async getChannels(genreIds) {
+    var out = [];
+    var genres = (genreIds && genreIds.length) ? genreIds : [''];
+    for (var i = 0; i < genres.length; i++) {
+      var query = genres[i] ? { genre: String(genres[i]) } : {};
+      for (var page = 1; page <= 5; page++) {
+        var chunk = await this._ordered('itv', query, page);
+        if (!chunk.length) break;
+        out = out.concat(chunk);
+        if (chunk.length < 8) break;
+      }
+      if (out.length) break;
+    }
+    return out;
+  }
 
+  async getVodList(categoryId, page) {
+    var query = categoryId ? { category: String(categoryId) } : {};
+    return this._ordered('vod', query, page || 1);
+  }
+  
   _cleanCmd(cmd) {
   if (!cmd) throw new Error('Portal não devolveu link');
   var url = String(cmd).trim().replace(/^(ffrt|ffmpeg|ffrt2|rtmp)\s+/i, '').trim();

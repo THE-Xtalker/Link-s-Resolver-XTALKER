@@ -232,7 +232,7 @@ class StalkerClient {
   }
 
   async _ordered(type, query, page) {
-    var q = { type: type, action: 'get_ordered_list', p: String(page || 1), JsHttpRequest: '1-xml' };
+    var q = { type: type, action: 'get_ordered_list', p: String(page || 1), JsHttpRequest: '1-0' };
     var extra = query || {};
     Object.keys(extra).forEach(function (k) { q[k] = extra[k]; });
     var data = await this._get(q);
@@ -240,19 +240,17 @@ class StalkerClient {
   }
 
   async getChannels(genreIds) {
-    var out = [];
-    var genres = (genreIds && genreIds.length) ? genreIds : [''];
-    for (var i = 0; i < genres.length; i++) {
-      var query = genres[i] ? { genre: String(genres[i]) } : {};
-      for (var page = 1; page <= 5; page++) {
-        var chunk = await this._ordered('itv', query, page);
-        if (!chunk.length) break;
-        out = out.concat(chunk);
-        if (chunk.length < 8) break;
-      }
-      if (out.length) break;
+    var attempts = [{}, { genre: '*' }];
+    var ids = genreIds || [];
+    for (var i = 0; i < ids.length && i < 5; i++) {
+      if (ids[i]) attempts.push({ genre: String(ids[i]) });
     }
-    return out;
+    for (var a = 0; a < attempts.length; a++) {
+      var chunk = await this._ordered('itv', attempts[a], 1);
+      if (chunk.length) return chunk;
+    }
+    return [];
+    }
   }
 
   async getVodList(categoryId, page) {

@@ -89,22 +89,25 @@ class StalkerClient {
   }
 
   async getChannels(genreId = '*') {
-    const url = `${this.portal}/server/load.php?type=itv&action=get_ordered_list&genre=${encodeURIComponent(genreId)}&p=1&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    if (r.data && r.data.js) {
-      return r.data.js.data || r.data.js;
-    }
-    return [];
+  const url = `${this.portal}/server/load.php?type=itv&action=get_ordered_list&genre=${encodeURIComponent(genreId)}&p=1&JsHttpRequest=1-xml`;
+  const r = await this.http.get(url);
+  if (r.data && r.data.js) {
+    // Tenta ler js.data (padrão), se não existir tenta js (caso o portal devolva a lista diretamente)
+    const data = r.data.js.data || r.data.js;
+    return Array.isArray(data) ? data : [];
   }
+  return [];
+}
 
-  async getVodList(categoryId, page = 1) {
-    const url = `${this.portal}/server/load.php?type=vod&action=get_ordered_list&category=${encodeURIComponent(categoryId)}&p=${page}&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    if (r.data && r.data.js) {
-      return r.data.js.data || r.data.js;
-    }
-    return [];
+async getVodList(categoryId, page = 1) {
+  const url = `${this.portal}/server/load.php?type=vod&action=get_ordered_list&category=${encodeURIComponent(categoryId)}&p=${page}&JsHttpRequest=1-xml`;
+  const r = await this.http.get(url);
+  if (r.data && r.data.js) {
+    const data = r.data.js.data || r.data.js;
+    return Array.isArray(data) ? data : [];
   }
+  return [];
+}
 
   async createTvLink(cmd) {
     const url =

@@ -6,7 +6,7 @@ const { renderConfigPage } = require('./config-page');
 // ---------- Manifest ----------
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.1',
+  version: '1.0.2',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker/Ministra',
   resources: ['catalog', 'stream'],
@@ -15,7 +15,22 @@ const manifest = {
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
   ],
-  behaviorHints: { configurable: true, configurationRequired: true }
+  // 👇 Adiciona este bloco "config" para o SDK reconhecer os parâmetros
+  config: [
+    { key: 'portalUrl', type: 'text', title: 'URL do Servidor' },
+    { key: 'mac',       type: 'text', title: 'MAC Address' },
+    { key: 'sn',        type: 'text', title: 'SN' },
+    { key: 'deviceId',  type: 'text', title: 'Device ID 1' },
+    { key: 'deviceId2', type: 'text', title: 'Device ID 2' },
+    { key: 'signature', type: 'text', title: 'Signature' },
+    { key: 'proxyUrl',  type: 'text', title: 'Proxy / VPN' },
+    { key: 'tvGenres',  type: 'text', title: 'Categorias TV' },
+    { key: 'vodGenres', type: 'text', title: 'Categorias VOD' }
+  ],
+  behaviorHints: { 
+    configurable: true, 
+    configurationRequired: true 
+  }
 };
 
 const builder = new addonBuilder(manifest);

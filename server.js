@@ -41,44 +41,50 @@ function decItem(id) {
 
 // ---------- Catalog handler ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
-  const cfg = decodeConfig(config);
-  if (!cfg) throw new Error('Configuração em falta');
-
-  const client = new StalkerClient(cfg);
-  await client.connect();
-
-  const metas = [];
-
-  if (type === 'tv') {
-    const all = await client.getChannels(cfg.tvGenres || []);
-    for (const ch of all) {
-      if (!ch.cmd && !ch.id) continue;
-      metas.push({
-        id: encItem({ kind: 'tv', cmd: ch.cmd || ch.id, name: ch.name }),
-        type: 'tv',
-        name: ch.name || 'Canal',
-        poster: ch.logo || undefined,
-        posterShape: 'landscape'
-      });
+  try {
+    const cfg = decodeConfig(config);
+    if (!cfg) {
+      return { metas: [{ id: 'err-config', type: type || 'tv', name: 'SEM CONFIG: remove o addon e instala o link novo' }] };
     }
-  } else if (type === 'movie') {
-    const cats = (cfg.vodGenres || []).slice(0, 8);
-    for (const cat of cats) {
-      const items = await client.getVodList(cat);
-      for (const it of items) {
-        if (String(it.is_series) === '1') continue;
+    const client = new StalkerClient(cfg);
+    await client.connect();
+    const metas = [];
+
+    if (type === 'tv') {
+      const all = await client.getChannels(cfg.tvGenres || []);
+      for (const ch of all) {
+        if (!ch || (!ch.cmd && !ch.id)) continue;
         metas.push({
-          id: encItem({ kind: 'vod', cmd: it.cmd, name: it.name }),
-          type: 'movie',
-          name: it.name,
-          poster: it.screenshot_uri || undefined,
-          description: it.description || ''
+          id: encItem({ kind: 'tv', cmd: ch.cmd || ch.id, name: ch.name }),
+          type: 'tv',
+          name: ch.name || 'Canal',
+          poster: ch.logo || undefined,
+          posterShape: 'landscape'
         });
       }
+    } else if (type === 'movie') {
+      const cats = (cfg.vodGenres && cfg.vodGenres.length) ? cfg.vodGenres.slice(0, 8) : [''];
+      for (const cat of cats) {
+        const items = await client.getVodList(cat);
+        for (const it of items) {
+          if (!it || String(it.is_series) === '1') continue;
+          metas.push({
+            id: encItem({ kind: 'vod', cmd: it.cmd || it.id, name: it.name }),
+            type: 'movie',
+            name: it.name || 'Filme',
+            poster: it.screenshot_uri || undefined
+          });
+        }
+      }
     }
-  }
 
-  return { metas };
+    if (!metas.length) {
+      return { metas: [{ id: 'err-empty', type: type || 'tv', name: 'PORTAL DEVOLVEU 0 ITENS' }] };
+    }
+    return { metas };
+  } catch (e) {
+    return { metas: [{ id: 'err-msg', type: type || 'tv', name: String(e && e.message || e).slice(0, 120) }] };
+  }
 });
 
 // ---------- Stream handler ----------

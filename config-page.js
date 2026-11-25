@@ -156,6 +156,7 @@ document.getElementById('btnGenerate').addEventListener('click', () => {
   const cfg = formData();
   cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
   cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
+  cfg.seriesGenres = [...document.querySelectorAll('#seriesCats input:checked')].map(i => i.value);
 
   const const b64 = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
   const origin = window.location.origin;

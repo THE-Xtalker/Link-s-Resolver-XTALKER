@@ -147,24 +147,34 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnGenerate').addEventListener('click', (e) => {
-    e.preventDefault();
-    const cfg = getFormData();
-    cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
-    cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
+  e.preventDefault(); // Impede o form de recarregar a página
+  
+  const cfg = getFormData();
+  cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
+  cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
 
-    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-                  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
-    const origin = window.location.origin;
-    const installUrl = origin + '/' + b64 + '/manifest.json';
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+                .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+  const origin = window.location.origin;
+  const installUrl = origin + '/' + b64 + '/manifest.json';
 
-    document.getElementById('installUrl').textContent = installUrl;
-    
-    const link = document.getElementById('installLink');
-    link.href = installUrl;
-    link.target = "_blank";
-    
-    installBox.style.display = 'block';
-  });
+  // 1. Mostra o link em texto para poderes copiar
+  document.getElementById('installUrl').textContent = installUrl;
+  
+  // 2. Prepara o botão verde
+  const link = document.getElementById('installLink');
+  
+  // Se estiveres no telemóvel, o stremio:// abre a app. 
+  // Se estiveres no PC, o link normal (https) funciona melhor.
+  link.href = installUrl.replace(/^https?:/, 'stremio:');
+  link.target = "_blank";
+  
+  // 3. Torna a caixa verde visível
+  installBox.style.display = 'block';
+  
+  // 4. Faz scroll até à caixa verde
+  installBox.scrollIntoView({ behavior: 'smooth' });
+});
 });
 </script>
 </body>

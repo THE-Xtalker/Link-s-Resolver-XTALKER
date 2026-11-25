@@ -6,7 +6,7 @@ const { renderConfigPage } = require('./config-page');
 // ---------- Manifest ----------
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.2',
+  version: '1.0.3',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker/Ministra',
   resources: ['catalog', 'stream'],
@@ -15,7 +15,6 @@ const manifest = {
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
   ],
-  // 👇 Adiciona este bloco "config" para o SDK reconhecer os parâmetros
   config: [
     { key: 'portalUrl', type: 'text', title: 'URL do Servidor' },
     { key: 'mac',       type: 'text', title: 'MAC Address' },
@@ -142,28 +141,31 @@ builder.defineStreamHandler(async ({ id, config }) => {
 const app = express();
 app.use(express.json({ limit: '256kb' }));
 
+// 1. Rotas básicas
 app.get('/health', (_req, res) => res.send('ok'));
 app.get('/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/', (_req, res) => res.redirect('/configure'));
 
-// Validação inicial (handshake + categorias)
+// 2. Rota de validação (TEM DE ESTAR ANTES DO ADDON ROUTER)
 app.post('/api/validate', async (req, res) => {
+  console.log('[API] Pedido de validação recebido:', req.body.portalUrl);
   try {
     const client = new StalkerClient(req.body);
     await client.handshake();
     await client.getProfile();
 
     let tvGenres = [], vodGenres = [];
-    try { tvGenres  = await client.getGenres('itv'); } catch (_) {}
-    try { vodGenres = await client.getVodCategories(); } catch (_) {}
+    try { tvGenres  = await client.getGenres('itv'); } catch (e) { console.log('Erro tvGenres:', e.message); }
+    try { vodGenres = await client.getVodCategories(); } catch (e) { console.log('Erro vodGenres:', e.message); }
 
     res.json({ ok: true, tvGenres, vodGenres });
   } catch (err) {
+    console.error('[API] Erro na validação:', err.message);
     res.status(400).json({ ok: false, error: err.message });
   }
 });
 
-// Addon router
+// 3. Addon router (por último, apanha tudo o resto)
 const addonRouter = getRouter(builder.getInterface());
 app.use('/', addonRouter);
 

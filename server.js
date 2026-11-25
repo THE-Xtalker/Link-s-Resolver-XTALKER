@@ -5,7 +5,7 @@ const { renderConfigPage } = require('./config-page');
 
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.5',
+  version: '1.0.6',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker',
   resources: ['catalog', 'stream'],
@@ -14,8 +14,7 @@ const manifest = {
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
   ],
-  behaviorHints:{
-   configurable: true }
+  behaviorHints: { configurable: true }
 };
 
 const builder = new addonBuilder(manifest);
@@ -23,7 +22,6 @@ const builder = new addonBuilder(manifest);
 function encItem(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
 function decItem(id) { return JSON.parse(Buffer.from(id, 'base64url').toString('utf8')); }
 
-// ---------- CATALOG ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
   if (!config || !config.portalUrl) throw new Error('Configuração em falta');
   console.log(`[CATALOG] A pedir: ${type}`);
@@ -35,20 +33,16 @@ builder.defineCatalogHandler(async ({ type, config }) => {
   const genres = type === 'tv' ? (config.tvGenres || ['*']) : (config.vodGenres || ['*']);
 
   for (const genre of genres) {
-    console.log(`[CATALOG] A carregar páginas 1-5 em paralelo para o género: ${genre}`);
-    // O SEGREDO ESTÁ AQUI: Pedir 5 páginas ao mesmo tempo!
     const promises = [];
     for (let p = 1; p <= 5; p++) {
       promises.push(type === 'tv' ? client.getChannelsPage(genre, p) : client.getVodPage(genre, p));
     }
     
     const results = await Promise.all(promises);
-    const allItems = results.flat(); // Junta os resultados das 5 páginas
+    const allItems = results.flat();
     
-    console.log(`[CATALOG] Encontrados ${allItems.length} itens para ${genre}`);
-
     for (const item of allItems) {
-      if (type === 'movie' && String(item.is_series) === '1') continue; // Ignora séries nos filmes por agora
+      if (type === 'movie' && String(item.is_series) === '1') continue;
       
       metas.push({
         id: encItem({ kind: type === 'tv' ? 'tv' : 'vod', cmd: item.cmd || item.id, name: item.name }),
@@ -60,12 +54,9 @@ builder.defineCatalogHandler(async ({ type, config }) => {
       });
     }
   }
-
-  console.log(`[CATALOG] A devolver ${metas.length} itens totais.`);
   return { metas };
 });
 
-// ---------- STREAM ----------
 builder.defineStreamHandler(async ({ id, config }) => {
   if (!config || !config.portalUrl) throw new Error('Configuração em falta');
 
@@ -105,6 +96,17 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
+// ==========================================
+// 👇 ESTA É A LINHA QUE RESOLVE O ERRO 404 👇
+// Intercetamos o pedido do manifesto antes do SDK
+// ==========================================
+app.get('/:config/manifest.json', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'application/json');
+  res.json(manifest);
+});
+
+// O SDK trata do catálogo e dos streams
 const addonRouter = getRouter(builder.getInterface());
 app.use('/', addonRouter);
 

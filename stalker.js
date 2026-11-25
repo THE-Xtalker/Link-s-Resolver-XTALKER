@@ -251,23 +251,23 @@ class StalkerClient {
     return listFromJs(data && data.js);
   }
 
-  async getChannels(genreIds) {
-    var attempts = [{}, { genre: '*' }];
-    var ids = genreIds || [];
-    for (var i = 0; i < ids.length && i < 5; i++) {
-      if (ids[i]) attempts.push({ genre: String(ids[i]) });
-    }
-    for (var a = 0; a < attempts.length; a++) {
-      var chunk = await this._ordered('itv', attempts[a], 1);
-      if (chunk.length) return chunk;
-    }
-    return [];
+  async getChannels(genreId = '*') {
+  const url = `${this.portal}/server/load.php?type=itv&action=get_ordered_list&genre=${encodeURIComponent(genreId)}&p=1&JsHttpRequest=1-xml`;
+  const r = await this.http.get(url);
+  if (r.data && r.data.js) {
+    return r.data.js.data || r.data.js;
   }
+  return [];
+}
 
-  async getVodList(categoryId, page) {
-    var query = categoryId ? { category: String(categoryId) } : {};
-    return this._ordered('vod', query, page || 1);
+async getVodList(categoryId, page = 1) {
+  const url = `${this.portal}/server/load.php?type=vod&action=get_ordered_list&category=${encodeURIComponent(categoryId)}&p=${page}&JsHttpRequest=1-xml`;
+  const r = await this.http.get(url);
+  if (r.data && r.data.js) {
+    return r.data.js.data || r.data.js;
   }
+  return [];
+}
 
   _cleanCmd(cmd) {
     if (!cmd) throw new Error('Portal não devolveu link');

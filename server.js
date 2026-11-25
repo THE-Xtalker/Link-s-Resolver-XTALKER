@@ -41,10 +41,12 @@ function decItem(id) {
 
 // ---------- Catalog handler ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
+  console.log('[CATALOG] type=' + type + ' config=' + (config ? String(config).slice(0, 24) : 'VAZIO'));
   try {
     const cfg = decodeConfig(config);
     if (!cfg) {
-      return { metas: [{ id: 'err-config', type: type || 'tv', name: 'SEM CONFIG: remove o addon e instala o link novo' }] };
+      console.error('[CATALOG] config nao decodifica');
+      return { metas: [{ id: 'err-config', type: type || 'tv', name: 'SEM CONFIG' }] };
     }
     const client = new StalkerClient(cfg);
     await client.connect();
@@ -52,6 +54,7 @@ builder.defineCatalogHandler(async ({ type, config }) => {
 
     if (type === 'tv') {
       const all = await client.getChannels(cfg.tvGenres || []);
+      console.log('[CATALOG] canais=' + all.length);
       for (const ch of all) {
         if (!ch || (!ch.cmd && !ch.id)) continue;
         metas.push({
@@ -63,7 +66,7 @@ builder.defineCatalogHandler(async ({ type, config }) => {
         });
       }
     } else if (type === 'movie') {
-      const cats = (cfg.vodGenres && cfg.vodGenres.length) ? cfg.vodGenres.slice(0, 8) : [''];
+      const cats = (cfg.vodGenres && cfg.vodGenres.length) ? cfg.vodGenres.slice(0, 4) : [''];
       for (const cat of cats) {
         const items = await client.getVodList(cat);
         for (const it of items) {
@@ -79,36 +82,28 @@ builder.defineCatalogHandler(async ({ type, config }) => {
     }
 
     if (!metas.length) {
-      return { metas: [{ id: 'err-empty', type: type || 'tv', name: 'PORTAL DEVOLVEU 0 ITENS' }] };
+      console.error('[CATALOG] portal devolveu 0');
+      return { metas: [{ id: 'err-empty', type: type || 'tv', name: 'PORTAL DEVOLVEU 0' }] };
     }
     return { metas };
   } catch (e) {
-    return { metas: [{ id: 'err-msg', type: type || 'tv', name: String(e && e.message || e).slice(0, 120) }] };
+    console.error('[CATALOG] ERRO ' + (e && e.message ? e.message : e));
+    return { metas: [{ id: 'err-msg', type: type || 'tv', name: String(e && e.message || e).slice(0, 80) }] };
   }
 });
 
-// ---------- Stream handler ----------
 builder.defineStreamHandler(async ({ id, config }) => {
   const cfg = decodeConfig(config);
   if (!cfg) throw new Error('Configuração em falta');
-
   const data = decItem(id);
   const client = new StalkerClient(cfg);
   await client.connect();
-
-  let url;
-  if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
-  else                    url = await client.createVodLink(data.cmd);
-
-  return {
-    streams: [{
-      title: data.name || 'Stream',
-      url,
-      behaviorHints: { notWebReady: false }
-    }]
-  };
+  const url = data.kind === 'tv'
+    ? await client.createTvLink(data.cmd)
+    : await client.createVodLink(data.cmd);
+  console.log('[STREAM] ' + url.slice(0, 120));
+  return { streams: [{ title: data.name || 'Stream', url: url }] };
 });
-
 // ---------- Express app ----------
 const app = express();
 app.use(express.json({ limit: '256kb' }));

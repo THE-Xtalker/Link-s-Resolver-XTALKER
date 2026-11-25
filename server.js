@@ -24,9 +24,7 @@ const builder = new addonBuilder(manifest);
 function decodeConfig(b64) {
   if (!b64) return null;
   try {
-    const decodedB64 = decodeURIComponent(b64);
-    const standardB64 = decodedB64.replace(/-/g, '+').replace(/_/g, '/');
-    const s = Buffer.from(standardB64, 'base64').toString('utf8');
+    const s = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
     return JSON.parse(s);
   } catch { return null; }
 }

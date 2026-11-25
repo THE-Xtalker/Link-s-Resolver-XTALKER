@@ -147,26 +147,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnGenerate').addEventListener('click', (e) => {
-    e.preventDefault();
-    const cfg = getFormData();
-    cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
-    cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
+  e.preventDefault();
+  const cfg = getFormData();
+  cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
+  cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
 
-    // Codificação Base64 URL-safe
-    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-                  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
-    const origin = window.location.origin;
-    const installUrl = origin + '/' + b64 + '/manifest.json';
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const origin = window.location.origin;
+  const installUrl = origin + '/' + b64 + '/manifest.json';
 
-    document.getElementById('installUrl').textContent = installUrl;
-
-// O segredo está aqui: usar o link HTTPS diretamente!
-const link = document.getElementById('installLink');
-link.href = installUrl; 
-link.target = "_blank"; // Abre numa nova aba para não perder a configuração
-
-installBox.style.display = 'block';
-  });
+  document.getElementById('installUrl').textContent = installUrl;
+  
+  // ESTAS 3 LINHAS SÃO CRUCIAIS:
+  const link = document.getElementById('installLink');
+  link.href = installUrl; // Usa o HTTPS
+  link.target = "_blank"; // Abre numa nova aba
+  
+  installBox.style.display = 'block';
+   });
 });
 </script>
 </body>

@@ -3,106 +3,74 @@ const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const { StalkerClient } = require('./stalker');
 const { renderConfigPage } = require('./config-page');
 
-// ---------- Manifest ----------
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.4',
+  version: '1.0.5',
   name: 'Stalker Resolver',
-  description: 'Resolvedor de links para portais Stalker/Ministra',
+  description: 'Resolvedor de links para portais Stalker',
   resources: ['catalog', 'stream'],
   types: ['tv', 'movie'],
   catalogs: [
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
   ],
-  behaviorHints: { 
-    configurable: true, 
-    configurationRequired: true 
-  }
+  behaviorHints: { configurable: true, configurationRequired: true }
 };
 
 const builder = new addonBuilder(manifest);
 
-// ---------- Helpers ----------
-function encItem(obj) {
-  return Buffer.from(JSON.stringify(obj)).toString('base64url');
-}
+function encItem(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
+function decItem(id) { return JSON.parse(Buffer.from(id, 'base64url').toString('utf8')); }
 
-function decItem(id) {
-  return JSON.parse(Buffer.from(id, 'base64url').toString('utf8'));
-}
-
-// ---------- Catalog handler ----------
+// ---------- CATALOG ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
-  // O SDK do Stremio JÁ descodifica o Base64. O 'config' já é um objeto JSON!
   if (!config || !config.portalUrl) throw new Error('Configuração em falta');
-  
-  console.log(`[CATALOG] A pedir catálogo tipo: ${type}`);
+  console.log(`[CATALOG] A pedir: ${type}`);
   
   const client = new StalkerClient(config);
   await client.handshake();
-  await client.getProfile();
 
   const metas = [];
+  const genres = type === 'tv' ? (config.tvGenres || ['*']) : (config.vodGenres || ['*']);
 
-  if (type === 'tv') {
-    const genres = (config.tvGenres && config.tvGenres.length > 0) ? config.tvGenres : ['*'];
-    let allChannels = [];
-
-    for (const genre of genres) {
-      console.log(`[CATALOG] A buscar canais da categoria: ${genre}`);
-      const channels = await client.getChannels(genre);
-      console.log(`[CATALOG] Encontrados ${channels.length} canais.`);
-      allChannels = allChannels.concat(channels);
+  for (const genre of genres) {
+    console.log(`[CATALOG] A carregar páginas 1-5 em paralelo para o género: ${genre}`);
+    // O SEGREDO ESTÁ AQUI: Pedir 5 páginas ao mesmo tempo!
+    const promises = [];
+    for (let p = 1; p <= 5; p++) {
+      promises.push(type === 'tv' ? client.getChannelsPage(genre, p) : client.getVodPage(genre, p));
     }
-
-    const seen = new Set();
-    for (const ch of allChannels) {
-      if (!seen.has(ch.id)) {
-        seen.add(ch.id);
-        metas.push({
-          id: encItem({ kind: 'tv', cmd: ch.cmd, name: ch.name }),
-          type: 'tv',
-          name: ch.name || 'Canal',
-          poster: ch.logo || undefined,
-          posterShape: 'square',
-          description: 'Canal de TV em Direto'
-        });
-      }
-    }
-  } else if (type === 'movie') {
-    const cats = (config.vodGenres && config.vodGenres.length > 0) ? config.vodGenres : ['*'];
     
-    for (const cat of cats) {
-      console.log(`[CATALOG] A buscar filmes da categoria: ${cat}`);
-      const items = await client.getVodList(cat);
-      console.log(`[CATALOG] Encontrados ${items.length} itens.`);
+    const results = await Promise.all(promises);
+    const allItems = results.flat(); // Junta os resultados das 5 páginas
+    
+    console.log(`[CATALOG] Encontrados ${allItems.length} itens para ${genre}`);
+
+    for (const item of allItems) {
+      if (type === 'movie' && String(item.is_series) === '1') continue; // Ignora séries nos filmes por agora
       
-      for (const it of items) {
-        if (String(it.is_series) === '1') continue;
-        metas.push({
-          id: encItem({ kind: 'vod', cmd: it.cmd, name: it.name }),
-          type: 'movie',
-          name: it.name,
-          poster: it.screenshot_uri || undefined,
-          description: it.description || ''
-        });
-      }
+      metas.push({
+        id: encItem({ kind: type === 'tv' ? 'tv' : 'vod', cmd: item.cmd || item.id, name: item.name }),
+        type: type,
+        name: item.name || 'Sem nome',
+        poster: item.logo || item.screenshot_uri || undefined,
+        posterShape: type === 'tv' ? 'square' : 'poster',
+        description: type === 'tv' ? 'Canal em Direto' : (item.description || '')
+      });
     }
   }
 
-  console.log(`[CATALOG] A devolver ${metas.length} itens para o Stremio.`);
+  console.log(`[CATALOG] A devolver ${metas.length} itens totais.`);
   return { metas };
 });
 
-// ---------- Stream handler ----------
+// ---------- STREAM ----------
 builder.defineStreamHandler(async ({ id, config }) => {
   if (!config || !config.portalUrl) throw new Error('Configuração em falta');
 
   const data = decItem(id);
   const client = new StalkerClient(config);
   await client.handshake();
-  await client.getProfile();
 
   let url;
   if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
@@ -117,35 +85,25 @@ builder.defineStreamHandler(async ({ id, config }) => {
   };
 });
 
-// ---------- Express app ----------
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json());
 
-// 1. Rotas básicas
 app.get('/health', (_req, res) => res.send('ok'));
 app.get('/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/', (_req, res) => res.redirect('/configure'));
 
-// 2. Rota de validação
 app.post('/api/validate', async (req, res) => {
-  console.log('[API] Pedido de validação recebido:', req.body.portalUrl);
   try {
     const client = new StalkerClient(req.body);
     await client.handshake();
-    await client.getProfile();
-
-    let tvGenres = [], vodGenres = [];
-    try { tvGenres  = await client.getGenres('itv'); } catch (e) { console.log('Erro tvGenres:', e.message); }
-    try { vodGenres = await client.getVodCategories(); } catch (e) { console.log('Erro vodGenres:', e.message); }
-
+    const tvGenres = await client.getGenres('itv').catch(() => []);
+    const vodGenres = await client.getVodCategories().catch(() => []);
     res.json({ ok: true, tvGenres, vodGenres });
   } catch (err) {
-    console.error('[API] Erro na validação:', err.message);
     res.status(400).json({ ok: false, error: err.message });
   }
 });
 
-// 3. Addon router (por último)
 const addonRouter = getRouter(builder.getInterface());
 app.use('/', addonRouter);
 

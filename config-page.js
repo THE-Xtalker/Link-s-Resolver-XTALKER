@@ -159,9 +159,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const installUrl = origin + '/' + b64 + '/manifest.json';
 
     document.getElementById('installUrl').textContent = installUrl;
-    const link = document.getElementById('installLink');
-    link.href = installUrl.replace(/^https?:/, 'stremio:');
-    installBox.style.display = 'block';
+
+// O segredo está aqui: usar o link HTTPS diretamente!
+const link = document.getElementById('installLink');
+link.href = installUrl; 
+link.target = "_blank"; // Abre numa nova aba para não perder a configuração
+
+installBox.style.display = 'block';
   });
 });
 </script>

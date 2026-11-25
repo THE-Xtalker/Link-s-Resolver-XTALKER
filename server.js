@@ -132,12 +132,18 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
-// Rota explícita para o manifesto para evitar erros 404
+// Manifesto já configurado: sem isto o Stremio mostra Configure em vez de Install
 app.get('/:config/manifest.json', (req, res) => {
+  const body = JSON.parse(JSON.stringify(manifest));
+  if (decodeConfig(req.params.config) && body.behaviorHints) {
+    delete body.behaviorHints.configurationRequired;
+  }
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'application/json');
-  res.send(JSON.stringify(manifest));
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.send(JSON.stringify(body));
 });
+
+app.get('/:config/configure', (_req, res) => res.redirect('/configure'));
 
 // Addon router (serve /{config}/manifest.json, etc.)
 app.use(getRouter(builder.getInterface()));

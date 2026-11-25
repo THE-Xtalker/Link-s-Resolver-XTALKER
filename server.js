@@ -50,17 +50,15 @@ builder.defineCatalogHandler(async ({ type, config }) => {
   const metas = [];
 
   if (type === 'tv') {
-    const all = await client.getChannels();
-    const allowed = new Set(cfg.tvGenres || []);
+    const all = await client.getChannels(cfg.tvGenres || []);
     for (const ch of all) {
-      if (allowed.size && !allowed.has(String(ch.tv_genre_id))) continue;
+      if (!ch.cmd && !ch.id) continue;
       metas.push({
-        id: encItem({ kind: 'tv', cmd: ch.cmd, name: ch.name }),
+        id: encItem({ kind: 'tv', cmd: ch.cmd || ch.id, name: ch.name }),
         type: 'tv',
         name: ch.name || 'Canal',
         poster: ch.logo || undefined,
-        posterShape: 'square',
-        description: ch.tv_genre_id ? `Género #${ch.tv_genre_id}` : ''
+        posterShape: 'landscape'
       });
     }
   } else if (type === 'movie') {

@@ -41,45 +41,68 @@ function decItem(id) {
 
 // ---------- Catalog handler ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
-  console.log('[CATALOG] type=' + type + ' config=' + (config ? String(config).slice(0, 24) : 'VAZIO'));
-  try {
-    const cfg = decodeConfig(config);
-    if (!cfg) {
-      console.error('[CATALOG] config nao decodifica');
-      return { metas: [{ id: 'err-config', type: type || 'tv', name: 'SEM CONFIG' }] };
-    }
-    const client = new StalkerClient(cfg);
-    await client.connect();
-    const metas = [];
+  const cfg = decodeConfig(config);
+  if (!cfg) throw new Error('Configuração em falta');
 
-    if (type === 'tv') {
-      const all = await client.getChannels(cfg.tvGenres || []);
-      console.log('[CATALOG] canais=' + all.length);
-      for (const ch of all) {
-        if (!ch || (!ch.cmd && !ch.id)) continue;
+  console.log(`[CATALOG] A pedir catálogo tipo: ${type}`);
+  
+  const client = new StalkerClient(cfg);
+  await client.handshake();
+  await client.getProfile();
+
+  const metas = [];
+
+  if (type === 'tv') {
+    // Se não selecionou nenhuma, pede a categoria "All" (*)
+    const genres = (cfg.tvGenres && cfg.tvGenres.length > 0) ? cfg.tvGenres : ['*'];
+    let allChannels = [];
+
+    for (const genre of genres) {
+      console.log(`[CATALOG] A buscar canais da categoria: ${genre}`);
+      const channels = await client.getChannels(genre);
+      console.log(`[CATALOG] Encontrados ${channels.length} canais.`);
+      allChannels = allChannels.concat(channels);
+    }
+
+    // Remover duplicados
+    const seen = new Set();
+    for (const ch of allChannels) {
+      if (!seen.has(ch.id)) {
+        seen.add(ch.id);
         metas.push({
-          id: encItem({ kind: 'tv', cmd: ch.cmd || ch.id, name: ch.name }),
+          id: encItem({ kind: 'tv', cmd: ch.cmd, name: ch.name }),
           type: 'tv',
           name: ch.name || 'Canal',
           poster: ch.logo || undefined,
-          posterShape: 'landscape'
+          posterShape: 'square',
+          description: 'Canal de TV em Direto'
         });
       }
-    } else if (type === 'movie') {
-      const cats = (cfg.vodGenres && cfg.vodGenres.length) ? cfg.vodGenres.slice(0, 4) : [''];
-      for (const cat of cats) {
-        const items = await client.getVodList(cat);
-        for (const it of items) {
-          if (!it || String(it.is_series) === '1') continue;
-          metas.push({
-            id: encItem({ kind: 'vod', cmd: it.cmd || it.id, name: it.name }),
-            type: 'movie',
-            name: it.name || 'Filme',
-            poster: it.screenshot_uri || undefined
-          });
-        }
+    }
+  } else if (type === 'movie') {
+    const cats = (cfg.vodGenres && cfg.vodGenres.length > 0) ? cfg.vodGenres : ['*'];
+    
+    for (const cat of cats) {
+      console.log(`[CATALOG] A buscar filmes da categoria: ${cat}`);
+      const items = await client.getVodList(cat);
+      console.log(`[CATALOG] Encontrados ${items.length} itens.`);
+      
+      for (const it of items) {
+        if (String(it.is_series) === '1') continue;
+        metas.push({
+          id: encItem({ kind: 'vod', cmd: it.cmd, name: it.name }),
+          type: 'movie',
+          name: it.name,
+          poster: it.screenshot_uri || undefined,
+          description: it.description || ''
+        });
       }
     }
+  }
+
+  console.log(`[CATALOG] A devolver ${metas.length} itens para o Stremio.`);
+  return { metas };
+});
 
     if (!metas.length) {
       console.error('[CATALOG] portal devolveu 0');

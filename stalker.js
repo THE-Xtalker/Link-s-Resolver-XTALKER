@@ -289,4 +289,19 @@ class StalkerClient {
   async createTvLink(cmd) {
     var data = await this._get({
       type: 'itv', action: 'create_link', cmd: cmd, series: '',
-      forced_storage: '0', disable_ad: '0', download
+      forced_storage: '0', disable_ad: '0', download: '0', force_ch_link_check: '0',
+      JsHttpRequest: '1-0'
+    });
+    return this._cleanCmd(data && data.js && (data.js.cmd || data.js));
+  }
+
+  async createVodLink(cmd) {
+    var data = await this._get({
+      type: 'vod', action: 'create_link', cmd: cmd, series: '',
+      forced_storage: '0', disable_ad: '0', download: '0', JsHttpRequest: '1-0'
+    });
+    return this._cleanCmd(data && data.js && (data.js.cmd || data.js));
+  }
+}
+
+module.exports = { StalkerClient };

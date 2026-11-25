@@ -6,7 +6,7 @@ const { renderConfigPage } = require('./config-page');
 // ---------- Manifest ----------
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.3',
+  version: '1.0.4',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker/Ministra',
   resources: ['catalog', 'stream'],
@@ -14,17 +14,6 @@ const manifest = {
   catalogs: [
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
-  ],
-  config: [
-    { key: 'portalUrl', type: 'text', title: 'URL do Servidor' },
-    { key: 'mac',       type: 'text', title: 'MAC Address' },
-    { key: 'sn',        type: 'text', title: 'SN' },
-    { key: 'deviceId',  type: 'text', title: 'Device ID 1' },
-    { key: 'deviceId2', type: 'text', title: 'Device ID 2' },
-    { key: 'signature', type: 'text', title: 'Signature' },
-    { key: 'proxyUrl',  type: 'text', title: 'Proxy / VPN' },
-    { key: 'tvGenres',  type: 'text', title: 'Categorias TV' },
-    { key: 'vodGenres', type: 'text', title: 'Categorias VOD' }
   ],
   behaviorHints: { 
     configurable: true, 
@@ -35,14 +24,6 @@ const manifest = {
 const builder = new addonBuilder(manifest);
 
 // ---------- Helpers ----------
-function decodeConfig(b64) {
-  if (!b64) return null;
-  try {
-    const s = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-    return JSON.parse(s);
-  } catch { return null; }
-}
-
 function encItem(obj) {
   return Buffer.from(JSON.stringify(obj)).toString('base64url');
 }
@@ -53,19 +34,19 @@ function decItem(id) {
 
 // ---------- Catalog handler ----------
 builder.defineCatalogHandler(async ({ type, config }) => {
-  const cfg = decodeConfig(config);
-  if (!cfg) throw new Error('Configuração em falta');
-
+  // O SDK do Stremio JÁ descodifica o Base64. O 'config' já é um objeto JSON!
+  if (!config || !config.portalUrl) throw new Error('Configuração em falta');
+  
   console.log(`[CATALOG] A pedir catálogo tipo: ${type}`);
   
-  const client = new StalkerClient(cfg);
+  const client = new StalkerClient(config);
   await client.handshake();
   await client.getProfile();
 
   const metas = [];
 
   if (type === 'tv') {
-    const genres = (cfg.tvGenres && cfg.tvGenres.length > 0) ? cfg.tvGenres : ['*'];
+    const genres = (config.tvGenres && config.tvGenres.length > 0) ? config.tvGenres : ['*'];
     let allChannels = [];
 
     for (const genre of genres) {
@@ -90,7 +71,7 @@ builder.defineCatalogHandler(async ({ type, config }) => {
       }
     }
   } else if (type === 'movie') {
-    const cats = (cfg.vodGenres && cfg.vodGenres.length > 0) ? cfg.vodGenres : ['*'];
+    const cats = (config.vodGenres && config.vodGenres.length > 0) ? config.vodGenres : ['*'];
     
     for (const cat of cats) {
       console.log(`[CATALOG] A buscar filmes da categoria: ${cat}`);
@@ -116,11 +97,10 @@ builder.defineCatalogHandler(async ({ type, config }) => {
 
 // ---------- Stream handler ----------
 builder.defineStreamHandler(async ({ id, config }) => {
-  const cfg = decodeConfig(config);
-  if (!cfg) throw new Error('Configuração em falta');
+  if (!config || !config.portalUrl) throw new Error('Configuração em falta');
 
   const data = decItem(id);
-  const client = new StalkerClient(cfg);
+  const client = new StalkerClient(config);
   await client.handshake();
   await client.getProfile();
 
@@ -146,7 +126,7 @@ app.get('/health', (_req, res) => res.send('ok'));
 app.get('/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/', (_req, res) => res.redirect('/configure'));
 
-// 2. Rota de validação (TEM DE ESTAR ANTES DO ADDON ROUTER)
+// 2. Rota de validação
 app.post('/api/validate', async (req, res) => {
   console.log('[API] Pedido de validação recebido:', req.body.portalUrl);
   try {
@@ -165,7 +145,7 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
-// 3. Addon router (por último, apanha tudo o resto)
+// 3. Addon router (por último)
 const addonRouter = getRouter(builder.getInterface());
 app.use('/', addonRouter);
 

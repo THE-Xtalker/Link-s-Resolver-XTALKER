@@ -118,17 +118,19 @@ app.get('/', (_req, res) => res.redirect('/configure'));
 // Validação inicial (handshake + categorias)
 app.post('/api/validate', async (req, res) => {
   try {
-    const client = new StalkerClient(req.body);
-    await client.handshake();
-    await client.getProfile();
-
-    let tvGenres = [], vodGenres = [];
-    try { tvGenres  = await client.getGenres('itv'); } catch (_) {}
-    try { vodGenres = await client.getVodCategories(); } catch (_) {}
-
-    res.json({ ok: true, tvGenres, vodGenres });
+    const client = new StalkerClient(req.body || {});
+    const session = await client.connect();
+    const cats = await client.getCategories();
+    res.json({
+      ok: true,
+      endpoint: session.endpoint,
+      profileError: client.profileError,
+      tvGenres: cats.tv,
+      vodGenres: cats.movies,
+      seriesGenres: cats.series
+    });
   } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
+    res.json({ ok: false, error: err.message || String(err) });
   }
 });
 

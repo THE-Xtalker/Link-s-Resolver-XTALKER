@@ -45,8 +45,7 @@ builder.defineCatalogHandler(async ({ type, config }) => {
   if (!cfg) throw new Error('Configuração em falta');
 
   const client = new StalkerClient(cfg);
-  await client.handshake();
-  await client.getProfile();
+  await client.connect();
 
   const metas = [];
 
@@ -91,8 +90,7 @@ builder.defineStreamHandler(async ({ id, config }) => {
 
   const data = decItem(id);
   const client = new StalkerClient(cfg);
-  await client.handshake();
-  await client.getProfile();
+  await client.connect();
 
   let url;
   if (data.kind === 'tv') url = await client.createTvLink(data.cmd);

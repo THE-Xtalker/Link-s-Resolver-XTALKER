@@ -132,6 +132,13 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
+// Rota explícita para o manifesto para evitar erros 404
+app.get('/:config/manifest.json', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(manifest));
+});
+
 // Addon router (serve /{config}/manifest.json, etc.)
 app.use(getRouter(builder.getInterface()));
 

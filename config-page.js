@@ -69,6 +69,10 @@ function renderConfigPage() {
         <legend>Categorias de Filmes / Séries</legend>
         <div class="cat-col" id="vodCats"></div>
       </fieldset>
+      <fieldset>
+  <legend>Categorias de Séries</legend>
+  <div class="cat-col" id="seriesCats"></div>
+</fieldset>
       <button type="button" id="btnGenerate">⚙️ Gerar addon</button>
     </div>
   </form>
@@ -95,21 +99,25 @@ function formData() {
   return fd;
 }
 
-function renderCats(container, items, prefix) {
+function renderCats(container, items) {
+  const list = Array.isArray(items) ? items : [];
   container.innerHTML = '';
-  if (!items.length) { container.textContent = '— Sem categorias —'; return; }
-  items.forEach(it => {
+  if (!list.length) { container.textContent = '— nenhuma —'; return; }
+  list.forEach(it => {
     const label = document.createElement('label');
     const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.value = it.id; cb.dataset.prefix = prefix;
+    cb.type = 'checkbox';
+    cb.value = it.id;
     label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + (it.title || it.name || it.id)));
+    label.appendChild(document.createTextNode(' ' + (it.title || it.id)));
     container.appendChild(label);
   });
 }
 
 document.getElementById('btnValidate').addEventListener('click', async () => {
-  statusEl.textContent = 'A ligar ao portal…';
+  const btn = document.getElementById('btnValidate');
+  btn.disabled = true;
+  statusEl.textContent = 'A ligar ao portal… se o Render estiver adormecido, espera cerca de 1 minuto.';
   statusEl.className = '';
   catSection.style.display = 'none';
   installBox.style.display = 'none';
@@ -119,16 +127,28 @@ document.getElementById('btnValidate').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData())
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { throw new Error('O servidor não respondeu JSON: ' + text.slice(0, 140)); }
     if (!data.ok) throw new Error(data.error || 'Falha desconhecida');
-    statusEl.textContent = '✅ Ligação OK. Seleciona as categorias.';
-    statusEl.className = 'ok';
-    renderCats(tvCatsEl, data.tvGenres, 'tv');
-    renderCats(vodCatsEl, data.vodGenres, 'vod');
+    renderCats(tvCatsEl, data.tvGenres);
+    renderCats(vodCatsEl, data.vodGenres);
+    if (document.getElementById('seriesCats')) renderCats(document.getElementById('seriesCats'), data.seriesGenres);
+    const n = (data.tvGenres||[]).length + (data.vodGenres||[]).length + (data.seriesGenres||[]).length;
+    statusEl.className = n ? 'ok' : 'err';
+    statusEl.textContent = (n ? 'Ligado. ' : 'Ligado, mas 0 categorias. ')
+      + 'TV ' + (data.tvGenres||[]).length
+      + ' · Filmes ' + (data.vodGenres||[]).length
+      + ' · Séries ' + (data.seriesGenres||[]).length
+      + (data.profileError ? ' · aviso: ' + data.profileError : '')
+      + ' · ' + data.endpoint;
     catSection.style.display = 'block';
   } catch (e) {
     statusEl.textContent = '❌ ' + e.message;
     statusEl.className = 'err';
+  } finally {
+    btn.disabled = false;
   }
 });
 

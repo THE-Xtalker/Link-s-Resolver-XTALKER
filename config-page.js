@@ -32,7 +32,7 @@ function renderConfigPage() {
   <h1>Stalker Resolver — Configuração</h1>
   <p class="sub">Introduz os dados do teu portal para gerar o addon.</p>
 
-  <form id="form">
+  <form id="form" onsubmit="return false;">
     <fieldset>
       <legend>Portal</legend>
       <label>Nome da Lista</label>
@@ -69,10 +69,6 @@ function renderConfigPage() {
         <legend>Categorias de Filmes / Séries</legend>
         <div class="cat-col" id="vodCats"></div>
       </fieldset>
-      <fieldset>
-  <legend>Categorias de Séries</legend>
-  <div class="cat-col" id="seriesCats"></div>
-</fieldset>
       <button type="button" id="btnGenerate">⚙️ Gerar addon</button>
     </div>
   </form>
@@ -86,81 +82,87 @@ function renderConfigPage() {
 </div>
 
 <script>
-const form = document.getElementById('form');
-const statusEl = document.getElementById('status');
-const catSection = document.getElementById('catSection');
-const tvCatsEl = document.getElementById('tvCats');
-const vodCatsEl = document.getElementById('vodCats');
-const installBox = document.getElementById('installBox');
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('form');
+  const statusEl = document.getElementById('status');
+  const catSection = document.getElementById('catSection');
+  const tvCatsEl = document.getElementById('tvCats');
+  const vodCatsEl = document.getElementById('vodCats');
+  const installBox = document.getElementById('installBox');
 
-function formData() {
-  const fd = Object.fromEntries(new FormData(form).entries());
-  Object.keys(fd).forEach(k => { if (fd[k] === '') delete fd[k]; });
-  return fd;
-}
-
-function renderCats(container, items) {
-  const list = Array.isArray(items) ? items : [];
-  container.innerHTML = '';
-  if (!list.length) { container.textContent = '— nenhuma —'; return; }
-  list.forEach(it => {
-    const label = document.createElement('label');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = it.id;
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + (it.title || it.id)));
-    container.appendChild(label);
-  });
-}
-
-document.getElementById('btnValidate').addEventListener('click', async () => {
-  statusEl.textContent = 'A ligar ao portal…';
-  statusEl.className = '';
-  catSection.style.display = 'none';
-  installBox.style.display = 'none';
-  
-  try {
-    const res = await fetch('/api/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData())
-    });
-    
-    // Se a resposta não for JSON (ex: erro 500 do Render), apanha o texto
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { throw new Error('Erro no servidor: ' + res.status); }
-
-    if (!data.ok) throw new Error(data.error || 'Falha desconhecida');
-    
-    statusEl.textContent = '✅ Ligação OK. Seleciona as categorias.';
-    statusEl.className = 'ok';
-    renderCats(tvCatsEl, data.tvGenres, 'tv');
-    renderCats(vodCatsEl, data.vodGenres, 'vod');
-    catSection.style.display = 'block';
-  } catch (e) {
-    statusEl.textContent = '❌ ' + e.message;
-    statusEl.className = 'err';
-    console.error(e);
+  function getFormData() {
+    const fd = Object.fromEntries(new FormData(form).entries());
+    Object.keys(fd).forEach(k => { if (fd[k] === '') delete fd[k]; });
+    return fd;
   }
-});
 
-document.getElementById('btnGenerate').addEventListener('click', () => {
-  const cfg = formData();
-  cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
-  cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
-  cfg.seriesGenres = [...document.querySelectorAll('#seriesCats input:checked')].map(i => i.value);
+  function renderCats(container, items, prefix) {
+    container.innerHTML = '';
+    if (!items || !items.length) { container.textContent = '— Sem categorias —'; return; }
+    items.forEach(it => {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; 
+      cb.value = it.id; 
+      cb.dataset.prefix = prefix;
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' ' + (it.title || it.name || it.id)));
+      container.appendChild(label);
+    });
+  }
 
-  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-              .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const origin = window.location.origin;
-  const installUrl = origin + '/' + b64 + '/manifest.json';
+  document.getElementById('btnValidate').addEventListener('click', async (e) => {
+    e.preventDefault();
+    statusEl.textContent = 'A ligar ao portal…';
+    statusEl.className = '';
+    catSection.style.display = 'none';
+    installBox.style.display = 'none';
+    
+    try {
+      const res = await fetch('/api/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getFormData())
+      });
+      
+      const text = await res.text();
+      let data;
+      try { 
+        data = JSON.parse(text); 
+      } catch (err) { 
+        throw new Error('Resposta inválida do servidor (' + res.status + '): ' + text.substring(0, 50)); 
+      }
 
-  document.getElementById('installUrl').textContent = installUrl;
-  const link = document.getElementById('installLink');
-  link.href = installUrl.replace(/^https?:/, 'stremio:');
-  installBox.style.display = 'block';
+      if (!data.ok) throw new Error(data.error || 'Falha desconhecida');
+      
+      statusEl.textContent = '✅ Ligação OK. Seleciona as categorias.';
+      statusEl.className = 'ok';
+      renderCats(tvCatsEl, data.tvGenres, 'tv');
+      renderCats(vodCatsEl, data.vodGenres, 'vod');
+      catSection.style.display = 'block';
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+      statusEl.className = 'err';
+    }
+  });
+
+  document.getElementById('btnGenerate').addEventListener('click', (e) => {
+    e.preventDefault();
+    const cfg = getFormData();
+    cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
+    cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
+
+    // Codificação Base64 URL-safe
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+                  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+    const origin = window.location.origin;
+    const installUrl = origin + '/' + b64 + '/manifest.json';
+
+    document.getElementById('installUrl').textContent = installUrl;
+    const link = document.getElementById('installLink');
+    link.href = installUrl.replace(/^https?:/, 'stremio:');
+    installBox.style.display = 'block';
+  });
 });
 </script>
 </body>

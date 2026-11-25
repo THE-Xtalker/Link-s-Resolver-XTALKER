@@ -6,7 +6,7 @@ const { renderConfigPage } = require('./config-page');
 // ---------- Manifest ----------
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.0',
+  version: '1.0.1',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker/Ministra',
   resources: ['catalog', 'stream'],
@@ -53,7 +53,6 @@ builder.defineCatalogHandler(async ({ type, config }) => {
   const metas = [];
 
   if (type === 'tv') {
-    // Se não selecionou nenhuma, pede a categoria "All" (*)
     const genres = (cfg.tvGenres && cfg.tvGenres.length > 0) ? cfg.tvGenres : ['*'];
     let allChannels = [];
 
@@ -64,7 +63,6 @@ builder.defineCatalogHandler(async ({ type, config }) => {
       allChannels = allChannels.concat(channels);
     }
 
-    // Remover duplicados
     const seen = new Set();
     for (const ch of allChannels) {
       if (!seen.has(ch.id)) {
@@ -104,29 +102,29 @@ builder.defineCatalogHandler(async ({ type, config }) => {
   return { metas };
 });
 
-    if (!metas.length) {
-      console.error('[CATALOG] portal devolveu 0');
-      return { metas: [{ id: 'err-empty', type: type || 'tv', name: 'PORTAL DEVOLVEU 0' }] };
-    }
-    return { metas };
-  } catch (e) {
-    console.error('[CATALOG] ERRO ' + (e && e.message ? e.message : e));
-    return { metas: [{ id: 'err-msg', type: type || 'tv', name: String(e && e.message || e).slice(0, 80) }] };
-  }
-});
-
+// ---------- Stream handler ----------
 builder.defineStreamHandler(async ({ id, config }) => {
   const cfg = decodeConfig(config);
   if (!cfg) throw new Error('Configuração em falta');
+
   const data = decItem(id);
   const client = new StalkerClient(cfg);
-  await client.connect();
-  const url = data.kind === 'tv'
-    ? await client.createTvLink(data.cmd)
-    : await client.createVodLink(data.cmd);
-  console.log('[STREAM] ' + url.slice(0, 120));
-  return { streams: [{ title: data.name || 'Stream', url: url }] };
+  await client.handshake();
+  await client.getProfile();
+
+  let url;
+  if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
+  else                    url = await client.createVodLink(data.cmd);
+
+  return {
+    streams: [{
+      title: data.name || 'Stream',
+      url,
+      behaviorHints: { notWebReady: false }
+    }]
+  };
 });
+
 // ---------- Express app ----------
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -138,37 +136,30 @@ app.get('/', (_req, res) => res.redirect('/configure'));
 // Validação inicial (handshake + categorias)
 app.post('/api/validate', async (req, res) => {
   try {
-    const client = new StalkerClient(req.body || {});
-    const session = await client.connect();
-    const cats = await client.getCategories();
-    res.json({
-      ok: true,
-      endpoint: session.endpoint,
-      profileError: client.profileError,
-      tvGenres: cats.tv,
-      vodGenres: cats.movies,
-      seriesGenres: cats.series
-    });
+    const client = new StalkerClient(req.body);
+    await client.handshake();
+    await client.getProfile();
+
+    let tvGenres = [], vodGenres = [];
+    try { tvGenres  = await client.getGenres('itv'); } catch (_) {}
+    try { vodGenres = await client.getVodCategories(); } catch (_) {}
+
+    res.json({ ok: true, tvGenres, vodGenres });
   } catch (err) {
-    res.json({ ok: false, error: err.message || String(err) });
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 
-// Manifesto já configurado: sem isto o Stremio mostra Configure em vez de Install
+// Rota explícita para o manifesto
 app.get('/:config/manifest.json', (req, res) => {
-  const body = JSON.parse(JSON.stringify(manifest));
-  if (decodeConfig(req.params.config) && body.behaviorHints) {
-    delete body.behaviorHints.configurationRequired;
-  }
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.send(JSON.stringify(body));
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(manifest));
 });
 
-app.get('/:config/configure', (_req, res) => res.redirect('/configure'));
-
-// Addon router (serve /{config}/manifest.json, etc.)
-app.use(getRouter(builder.getInterface()));
+// Addon router
+const addonRouter = getRouter(builder.getInterface());
+app.use('/', addonRouter);
 
 const PORT = process.env.PORT || 7000;
 app.listen(PORT, () => console.log('Addon a correr na porta ' + PORT));

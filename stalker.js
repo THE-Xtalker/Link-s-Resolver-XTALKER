@@ -98,15 +98,27 @@ class StalkerClient {
 
   // Paginação individual (usado no catálogo paralelo)
   async getChannelsPage(genreId, page = 1) {
-    let url = `${this.apiBase}type=itv&action=get_ordered_list&p=${page}&JsHttpRequest=1-0`;
-    if (genreId && genreId !== '*') url += `&genre=${genreId}`;
+  // Força a categoria '*' se estiver vazia, para o portal devolver os canais todos
+  const g = (!genreId || genreId === '*') ? '*' : genreId;
+  let url = `${this.apiBase}type=itv&action=get_ordered_list&genre=${g}&p=${page}&JsHttpRequest=1-0`;
+  
+  try {
+    const r = await this.http.get(url, { headers: this._headers() });
     
-    try {
-      const r = await this.http.get(url, { headers: this._headers() });
-      const data = r.data?.js?.data || r.data?.js || [];
-      return Array.isArray(data) ? data : Object.values(data);
-    } catch (e) { return []; }
+    // LOGS DE DIAGNÓSTICO: Vão aparecer no Render
+    console.log(`[STALKER DEBUG] URL: ${url}`);
+    console.log(`[STALKER DEBUG] Status: ${r.status}`);
+    // Mostra os primeiros 150 caracteres da resposta do portal
+    const rawResponse = JSON.stringify(r.data).substring(0, 150);
+    console.log(`[STALKER DEBUG] Resposta do portal: ${rawResponse}...`);
+
+    const data = r.data?.js?.data || r.data?.js || [];
+    return Array.isArray(data) ? data : Object.values(data);
+  } catch (e) { 
+    console.error(`[STALKER ERROR] Falha ao obter canais (página ${page}):`, e.message);
+    return []; 
   }
+}
 
   async getVodPage(categoryId, page = 1) {
     let url = `${this.apiBase}type=vod&action=get_ordered_list&p=${page}&JsHttpRequest=1-0`;

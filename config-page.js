@@ -137,8 +137,7 @@ document.getElementById('btnGenerate').addEventListener('click', () => {
   cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
   cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
 
-  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-                .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+  const const b64 = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
   const origin = window.location.origin;
   const installUrl = origin + '/' + b64 + '/manifest.json';
 

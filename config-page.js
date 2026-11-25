@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try { 
         data = JSON.parse(text); 
       } catch (err) { 
-        throw new Error('Resposta inválida do servidor (' + res.status + '): ' + text.substring(0, 50)); 
+        throw new Error('Resposta inválida do servidor (' + res.status + ')'); 
       }
 
       if (!data.ok) throw new Error(data.error || 'Falha desconhecida');
@@ -147,25 +147,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnGenerate').addEventListener('click', (e) => {
-  e.preventDefault();
-  const cfg = getFormData();
-  cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
-  cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
+    e.preventDefault();
+    const cfg = getFormData();
+    cfg.tvGenres = [...document.querySelectorAll('#tvCats input:checked')].map(i => i.value);
+    cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
 
-  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const origin = window.location.origin;
-  const installUrl = origin + '/' + b64 + '/manifest.json';
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+                  .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+    const origin = window.location.origin;
+    const installUrl = origin + '/' + b64 + '/manifest.json';
 
-  document.getElementById('installUrl').textContent = installUrl;
-  
-  // ESTAS 3 LINHAS SÃO CRUCIAIS:
-  const link = document.getElementById('installLink');
-  link.href = installUrl; // Usa o HTTPS
-  link.target = "_blank"; // Abre numa nova aba
-  
-  installBox.style.display = 'block';
-   });
+    document.getElementById('installUrl').textContent = installUrl;
+    
+    const link = document.getElementById('installLink');
+    link.href = installUrl;
+    link.target = "_blank";
+    
+    installBox.style.display = 'block';
+  });
 });
 </script>
 </body>

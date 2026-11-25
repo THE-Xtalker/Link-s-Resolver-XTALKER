@@ -14,27 +14,35 @@ function normalizeMac(mac) {
 }
 
 function portalEndpoints(raw) {
-  let input = String(raw || '').trim();
+  var input = String(raw || '').trim();
   if (!input) throw new Error('URL do servidor em falta');
-  if (!/^https?:\/\//i.test(input)) input = 'http://' + input;
-  input = input.replace(/[?#].*\( /, '').replace(/\/+ \)/, '');
+  if (input.indexOf('http://') !== 0 && input.indexOf('https://') !== 0) input = 'http://' + input;
 
-  const direct = [];
-  if (/\/(portal\.php|server\/load\.php)$/i.test(input)) {
+  var q = input.indexOf('?');
+  var h = input.indexOf('#');
+  var cut = input.length;
+  if (q >= 0 && q < cut) cut = q;
+  if (h >= 0 && h < cut) cut = h;
+  input = input.slice(0, cut);
+  while (input.charAt(input.length - 1) === '/') input = input.slice(0, -1);
+
+  var direct = [];
+  if (/\/portal\.php\( /i.test(input) || /\/server\/load\.php \)/i.test(input)) {
     direct.push(input);
-    input = input.replace(/\/(portal\.php|server\/load\.php)\( /i, '').replace(/\/+ \)/, '');
+    input = input.replace(/\/portal\.php\( /i, '').replace(/\/server\/load\.php \)/i, '');
+    while (input.charAt(input.length - 1) === '/') input = input.slice(0, -1);
   }
-  input = input.replace(/\/c$/i, '');
+  if (input.slice(-2).toLowerCase() === '/c') input = input.slice(0, -2);
 
-  const bases = [input];
-  if (!/\/stalker_portal$/i.test(input)) bases.push(input + '/stalker_portal');
+  var bases = [input];
+  if (input.toLowerCase().slice(-15) !== '/stalker_portal') bases.push(input + '/stalker_portal');
 
-  const urls = [...direct];
-  for (const b of bases) {
+  var urls = direct.slice();
+  bases.forEach(function (b) {
     urls.push(b + '/portal.php');
     urls.push(b + '/server/load.php');
-  }
-  return [...new Set(urls)];
+  });
+  return urls.filter(function (u, i) { return urls.indexOf(u) === i; });
 }
 
 function parseBody(data) {
@@ -113,7 +121,7 @@ class StalkerClient {
   _headers() {
     const parts = [`mac=${this.mac}`, 'stb_lang=en', 'timezone=Europe/Lisbon'];
     for (const [k, v] of Object.entries(this.cookies)) {
-      if (k.toLowerCase() !== 'mac') parts.push(`\( {k}= \){v}`);
+      if (k.toLowerCase() !== 'mac') parts.push(k + '=' + v);
     }
     const h = {
       'User-Agent': USER_AGENT,

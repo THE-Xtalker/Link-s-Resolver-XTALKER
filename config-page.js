@@ -158,7 +158,7 @@ document.getElementById('btnGenerate').addEventListener('click', () => {
   cfg.vodGenres = [...document.querySelectorAll('#vodCats input:checked')].map(i => i.value);
   cfg.seriesGenres = [...document.querySelectorAll('#seriesCats input:checked')].map(i => i.value);
 
-  const const b64 = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
+  var b64 = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))));
   const origin = window.location.origin;
   const installUrl = origin + '/' + b64 + '/manifest.json';
 

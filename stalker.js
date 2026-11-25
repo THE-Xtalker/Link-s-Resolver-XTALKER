@@ -1,131 +1,249 @@
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 const { SocksProxyAgent } = require('socks-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const USER_AGENT =
   'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3';
 
+function normalizeMac(mac) {
+  const hex = String(mac || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+  if (hex.length !== 12) throw new Error('MAC inválido. Formato: 00:1A:79:XX:XX:XX');
+  return hex.match(/.{2}/g).join(':');
+}
+
+function portalEndpoints(raw) {
+  let input = String(raw || '').trim();
+  if (!input) throw new Error('URL do servidor em falta');
+  if (!/^https?:\/\//i.test(input)) input = 'http://' + input;
+  input = input.replace(/[?#].*\( /, '').replace(/\/+ \)/, '');
+
+  const direct = [];
+  if (/\/(portal\.php|server\/load\.php)$/i.test(input)) {
+    direct.push(input);
+    input = input.replace(/\/(portal\.php|server\/load\.php)\( /i, '').replace(/\/+ \)/, '');
+  }
+  input = input.replace(/\/c$/i, '');
+
+  const bases = [input];
+  if (!/\/stalker_portal$/i.test(input)) bases.push(input + '/stalker_portal');
+
+  const urls = [...direct];
+  for (const b of bases) {
+    urls.push(b + '/portal.php');
+    urls.push(b + '/server/load.php');
+  }
+  return [...new Set(urls)];
+}
+
+function parseBody(data) {
+  if (data == null) return null;
+  if (typeof data === 'object') return data;
+  const text = String(data).replace(/^\uFEFF/, '').trim();
+  if (!text) return null;
+  if (!text.startsWith('{') && !text.startsWith('[')) {
+    if (/authorization failed|access denied|unauthorized/i.test(text)) {
+      throw new Error(text.slice(0, 180));
+    }
+    throw new Error('Resposta inesperada: ' + text.slice(0, 140));
+  }
+  try { return JSON.parse(text); }
+  catch {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]);
+    throw new Error('JSON inválido do portal');
+  }
+}
+
+function asList(js) {
+  if (!js) return [];
+  if (Array.isArray(js)) return js;
+  if (Array.isArray(js.data)) return js.data;
+  if (typeof js === 'object') {
+    const vals = Object.values(js).filter(v => v && typeof v === 'object');
+    if (vals.length && vals.every(v => 'id' in v || 'title' in v || 'name' in v)) return vals;
+  }
+  return [];
+}
+
+function normalizeCats(js) {
+  const out = [];
+  const seen = new Set();
+  for (const it of asList(js)) {
+    if (it.id === undefined || it.id === null || it.id === '*' || it.id === '') continue;
+    const id = String(it.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, title: it.title || it.name || it.category_name || id });
+  }
+  return out;
+}
+
 class StalkerClient {
   constructor(cfg) {
-    this.portal = (cfg.portalUrl || '').replace(/\/+$/, '');
-    this.mac = cfg.mac || '';
+    this.portalInput = cfg.portalUrl || '';
+    this.mac = normalizeMac(cfg.mac);
     this.sn = cfg.sn || '';
     this.deviceId = cfg.deviceId || '';
     this.deviceId2 = cfg.deviceId2 || '';
     this.signature = cfg.signature || '';
     this.proxyUrl = cfg.proxyUrl || '';
+    this.endpoint = null;
+    this.referer = null;
     this.token = null;
-    this.http = null;
-    this._buildHttp();
+    this.cookies = {};
+    this.profileError = null;
+    this.http = axios.create({ timeout: 20000, validateStatus: () => true, ...this._agents() });
   }
 
-  _buildHttp() {
-    const opts = {
-      timeout: 20000,
-      headers: this._headers(),
-      validateStatus: () => true
-    };
+  _agents() {
     if (this.proxyUrl) {
       const agent = this.proxyUrl.startsWith('socks')
         ? new SocksProxyAgent(this.proxyUrl)
-        : new HttpsProxyAgent(this.proxyUrl);
-      opts.httpAgent = agent;
-      opts.httpsAgent = agent;
+        : new HttpsProxyAgent(this.proxyUrl, { rejectUnauthorized: false });
+      return { httpAgent: agent, httpsAgent: agent };
     }
-    this.http = axios.create(opts);
+    return {
+      httpAgent: new http.Agent(),
+      httpsAgent: new https.Agent({ rejectUnauthorized: false })
+    };
   }
 
   _headers() {
+    const parts = [`mac=${this.mac}`, 'stb_lang=en', 'timezone=Europe/Lisbon'];
+    for (const [k, v] of Object.entries(this.cookies)) {
+      if (k.toLowerCase() !== 'mac') parts.push(`\( {k}= \){v}`);
+    }
     const h = {
       'User-Agent': USER_AGENT,
-      'X-User-Agent': 'Model: MAG250; Link: WiFi',
-      Cookie: `mac=${encodeURIComponent(this.mac)}; stb_lang=en; timezone=Europe/London`,
-      Referer: `${this.portal}/c/`
+      'X-User-Agent': 'Model: MAG250; Link: Ethernet',
+      Accept: '*/*',
+      Cookie: parts.join('; '),
+      Referer: this.referer || this.portalInput
     };
-    if (this.token) h.Authorization = `Bearer ${this.token}`;
+    if (this.token) h.Authorization = 'Bearer ' + this.token;
     return h;
   }
 
-  async handshake() {
-    const url = `${this.portal}/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    const js = r.data && r.data.js;
-    if (!js || !js.token) throw new Error('Handshake falhou (sem token)');
-    this.token = js.token;
-    this._buildHttp();
-    return this.token;
+  _absorb(res) {
+    const raw = res.headers && res.headers['set-cookie'];
+    if (!raw) return;
+    for (const c of (Array.isArray(raw) ? raw : [raw])) {
+      const pair = String(c).split(';')[0];
+      const i = pair.indexOf('=');
+      if (i > 0) this.cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+    }
+  }
+
+  async _get(params) {
+    const res = await this.http.get(this.endpoint, { params, headers: this._headers() });
+    this._absorb(res);
+    if (res.status >= 400) throw new Error('HTTP ' + res.status);
+    return parseBody(res.data);
+  }
+
+  async connect() {
+    const errors = [];
+    for (const endpoint of portalEndpoints(this.portalInput)) {
+      try {
+        this.endpoint = endpoint;
+        this.referer = endpoint.replace(/\/(portal\.php|server\/load\.php)$/i, '/c/');
+        this.token = null;
+        this.cookies = {};
+        const data = await this._get({
+          type: 'stb', action: 'handshake', token: '', prehash: 'false', JsHttpRequest: '1-xml'
+        });
+        const token = data && data.js && data.js.token;
+        if (!token) { errors.push(endpoint + ': sem token'); continue; }
+        this.token = token;
+        try { await this.getProfile(); }
+        catch (e) { this.profileError = e.message; }
+        return { endpoint, token };
+      } catch (e) {
+        errors.push(endpoint + ': ' + e.message);
+      }
+    }
+    throw new Error(errors.slice(0, 4).join(' | ') || 'Handshake falhou');
   }
 
   async getProfile() {
-    const metrics = encodeURIComponent(
-      JSON.stringify({ mac: this.mac, sn: this.sn, model: 'MAG250', type: 'STB', uid: '', random: '' })
-    );
-    const qs = [
-      'type=stb', 'action=get_profile', 'hd=1',
-      'sn=' + encodeURIComponent(this.sn),
-      'device_id=' + encodeURIComponent(this.deviceId),
-      'device_id2=' + encodeURIComponent(this.deviceId2),
-      'signature=' + encodeURIComponent(this.signature),
-      'stb_type=MAG250', 'client_type=STB', 'image_version=218',
-      'video_out=hdmi', 'hw_version=1.7-BD-00', 'not_valid_token=0',
-      'auth_second_step=1', 'num_banks=2',
-      'metrics=' + metrics,
-      'JsHttpRequest=1-xml'
-    ].join('&');
-    const r = await this.http.get(`${this.portal}/server/load.php?${qs}`);
-    return r.data && r.data.js;
+    const q = {
+      type: 'stb', action: 'get_profile', hd: '1',
+      num_banks: '2', stb_type: 'MAG250', client_type: 'STB',
+      image_version: '218', video_out: 'hdmi', hw_version: '1.7-BD-00',
+      not_valid_token: '0', auth_second_step: '1', JsHttpRequest: '1-xml'
+    };
+    if (this.sn) q.sn = this.sn;
+    if (this.deviceId) q.device_id = this.deviceId;
+    if (this.deviceId2) q.device_id2 = this.deviceId2;
+    if (this.signature) q.signature = this.signature;
+    const data = await this._get(q);
+    return data && data.js;
   }
 
-  async getGenres(type /* 'itv' | 'vod' */) {
-    const url = `${this.portal}/server/load.php?type=${type}&action=get_genres&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    return (r.data && r.data.js) || [];
+  async _firstList(queries) {
+    let last = '';
+    for (const q of queries) {
+      try {
+        const data = await this._get(q);
+        const list = normalizeCats(data && data.js);
+        if (list.length) return list;
+      } catch (e) { last = e.message; }
+    }
+    if (last) this.profileError = this.profileError || last;
+    return [];
   }
 
-  async getVodCategories() {
-    const url = `${this.portal}/server/load.php?type=vod&action=get_categories&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    return (r.data && r.data.js) || [];
+  async getCategories() {
+    const tv = await this._firstList([
+      { type: 'itv', action: 'get_genres', JsHttpRequest: '1-xml' }
+    ]);
+    const movies = await this._firstList([
+      { type: 'vod', action: 'get_categories', JsHttpRequest: '1-xml' },
+      { type: 'vod', action: 'get_genres', JsHttpRequest: '1-xml' }
+    ]);
+    const series = await this._firstList([
+      { type: 'series', action: 'get_categories', JsHttpRequest: '1-xml' },
+      { type: 'series', action: 'get_genres', JsHttpRequest: '1-xml' }
+    ]);
+    return { tv, movies, series };
   }
 
   async getChannels() {
-    const url = `${this.portal}/server/load.php?type=itv&action=get_all_channels&force_ch_link_check=&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    return (r.data && r.data.js && r.data.js.data) || [];
+    const data = await this._get({
+      type: 'itv', action: 'get_all_channels', force_ch_link_check: '', JsHttpRequest: '1-xml'
+    });
+    return (data && data.js && data.js.data) || [];
   }
 
   async getVodList(categoryId, page = 1) {
-    const url = `${this.portal}/server/load.php?type=vod&action=get_ordered_list&category=${categoryId}&p=${page}&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    return (r.data && r.data.js && r.data.js.data) || [];
+    const data = await this._get({
+      type: 'vod', action: 'get_ordered_list', category: categoryId, p: page, JsHttpRequest: '1-xml'
+    });
+    return (data && data.js && data.js.data) || [];
+  }
+
+  _cleanCmd(cmd) {
+    if (!cmd) throw new Error('Portal não devolveu link');
+    return String(cmd).trim().split(/\s+/).pop();
   }
 
   async createTvLink(cmd) {
-    const url =
-      `${this.portal}/server/load.php?type=itv&action=create_link` +
-      `&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0` +
-      `&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    const js = r.data && r.data.js;
-    if (!js || !js.cmd) throw new Error('create_link falhou');
-    return js.cmd.split(' ').pop();
+    const data = await this._get({
+      type: 'itv', action: 'create_link', cmd, series: '',
+      forced_storage: '0', disable_ad: '0', download: '0', force_ch_link_check: '0',
+      JsHttpRequest: '1-xml'
+    });
+    return this._cleanCmd(data && data.js && data.js.cmd);
   }
 
   async createVodLink(cmd) {
-    const url =
-      `${this.portal}/server/load.php?type=vod&action=create_link` +
-      `&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0` +
-      `&disable_ad=0&download=0&JsHttpRequest=1-xml`;
-    const r = await this.http.get(url);
-    const js = r.data && r.data.js;
-    if (!js || !js.cmd) throw new Error('create_link VOD falhou');
-    return js.cmd.split(' ').pop();
-  }
-
-  async ping() {
-    try {
-      await this.http.get(`${this.portal}/server/load.php?type=stb&action=get_events&event_active_id=0&init=1&JsHttpRequest=1-xml`);
-    } catch (_) {}
+    const data = await this._get({
+      type: 'vod', action: 'create_link', cmd, series: '',
+      forced_storage: '0', disable_ad: '0', download: '0', JsHttpRequest: '1-xml'
+    });
+    return this._cleanCmd(data && data.js && data.js.cmd);
   }
 }
 

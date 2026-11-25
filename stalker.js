@@ -88,6 +88,26 @@ function normalizeCats(js) {
   return out;
 }
 
+function listFromJs(js) {
+  if (!js) return [];
+  if (Array.isArray(js)) return js;
+  var data = js.data !== undefined ? js.data : js;
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    return Object.keys(data).map(function (k) { return data[k]; }).filter(function (v) {
+      return v && typeof v === 'object' && (v.name || v.cmd || v.id);
+    });
+  }
+  return [];
+}
+
+async _ordered(type, query, page) {
+  var q = { type: type, action: 'get_ordered_list', p: String(page || 1), JsHttpRequest: '1-xml' };
+  Object.keys(query || {}).forEach(function (k) { q[k] = query[k]; });
+  var data = await this._get(q);
+  return listFromJs(data && data.js);
+}
+
 class StalkerClient {
   constructor(cfg) {
     this.portalInput = cfg.portalUrl || '';
@@ -218,24 +238,33 @@ class StalkerClient {
     return { tv, movies, series };
   }
 
-  async getChannels() {
-    const data = await this._get({
-      type: 'itv', action: 'get_all_channels', force_ch_link_check: '', JsHttpRequest: '1-xml'
-    });
-    return (data && data.js && data.js.data) || [];
+  async getChannels(genreIds) {
+  var out = [];
+  var genres = (genreIds && genreIds.length) ? genreIds : [''];
+  for (var i = 0; i < genres.length; i++) {
+    var query = genres[i] ? { genre: String(genres[i]) } : {};
+    for (var page = 1; page <= 5; page++) {
+      var chunk = await this._ordered('itv', query, page);
+      if (!chunk.length) break;
+      out = out.concat(chunk);
+      if (chunk.length < 8) break;
+    }
+    if (out.length) break;
   }
+  return out;
+}
 
-  async getVodList(categoryId, page = 1) {
-    const data = await this._get({
-      type: 'vod', action: 'get_ordered_list', category: categoryId, p: page, JsHttpRequest: '1-xml'
-    });
-    return (data && data.js && data.js.data) || [];
-  }
+async getVodList(categoryId, page) {
+  var query = categoryId ? { category: String(categoryId) } : {};
+  return this._ordered('vod', query, page || 1);
+}
 
   _cleanCmd(cmd) {
-    if (!cmd) throw new Error('Portal não devolveu link');
-    return String(cmd).trim().split(/\s+/).pop();
-  }
+  if (!cmd) throw new Error('Portal não devolveu link');
+  var url = String(cmd).trim().replace(/^(ffrt|ffmpeg|ffrt2|rtmp)\s+/i, '').trim();
+  if (!url.startsWith('http')) throw new Error('Link sem http: ' + url.slice(0, 80));
+  return url;
+}
 
   async createTvLink(cmd) {
     const data = await this._get({

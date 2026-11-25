@@ -115,40 +115,34 @@ function renderCats(container, items) {
 }
 
 document.getElementById('btnValidate').addEventListener('click', async () => {
-  const btn = document.getElementById('btnValidate');
-  btn.disabled = true;
-  statusEl.textContent = 'A ligar ao portal… se o Render estiver adormecido, espera cerca de 1 minuto.';
+  statusEl.textContent = 'A ligar ao portal…';
   statusEl.className = '';
   catSection.style.display = 'none';
   installBox.style.display = 'none';
+  
   try {
     const res = await fetch('/api/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData())
     });
+    
+    // Se a resposta não for JSON (ex: erro 500 do Render), apanha o texto
     const text = await res.text();
     let data;
-    try { data = JSON.parse(text); }
-    catch { throw new Error('O servidor não respondeu JSON: ' + text.slice(0, 140)); }
+    try { data = JSON.parse(text); } catch { throw new Error('Erro no servidor: ' + res.status); }
+
     if (!data.ok) throw new Error(data.error || 'Falha desconhecida');
-    renderCats(tvCatsEl, data.tvGenres);
-    renderCats(vodCatsEl, data.vodGenres);
-    if (document.getElementById('seriesCats')) renderCats(document.getElementById('seriesCats'), data.seriesGenres);
-    const n = (data.tvGenres||[]).length + (data.vodGenres||[]).length + (data.seriesGenres||[]).length;
-    statusEl.className = n ? 'ok' : 'err';
-    statusEl.textContent = (n ? 'Ligado. ' : 'Ligado, mas 0 categorias. ')
-      + 'TV ' + (data.tvGenres||[]).length
-      + ' · Filmes ' + (data.vodGenres||[]).length
-      + ' · Séries ' + (data.seriesGenres||[]).length
-      + (data.profileError ? ' · aviso: ' + data.profileError : '')
-      + ' · ' + data.endpoint;
+    
+    statusEl.textContent = '✅ Ligação OK. Seleciona as categorias.';
+    statusEl.className = 'ok';
+    renderCats(tvCatsEl, data.tvGenres, 'tv');
+    renderCats(vodCatsEl, data.vodGenres, 'vod');
     catSection.style.display = 'block';
   } catch (e) {
     statusEl.textContent = '❌ ' + e.message;
     statusEl.className = 'err';
-  } finally {
-    btn.disabled = false;
+    console.error(e);
   }
 });
 

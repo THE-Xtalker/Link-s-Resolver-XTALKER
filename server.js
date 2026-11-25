@@ -14,7 +14,8 @@ const manifest = {
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
     { type: 'movie', id: 'stalker_movies', name: 'Stalker — Filmes' }
   ],
-  behaviorHints: { configurable: true, configurationRequired: true }
+  behaviorHints:{
+   configurable: true }
 };
 
 const builder = new addonBuilder(manifest);

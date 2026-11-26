@@ -116,21 +116,42 @@ app.get('/:config/meta/:type/:id.json', async (req, res) => {
 
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
   try {
+    const rawConfig = req.params.config;
+    const config = decodeConfig(rawConfig);
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.headers.host;
     const data = decItem(req.params.id);
     
-    // Aponta o Stremio para o nosso META-SHIELD
-    const shieldUrl = `${protocol}://${host}/meta/${req.params.config}/${encodeURIComponent(req.params.id)}?type=${req.params.type}`;
+    // 1. Instanciar o cliente para extrair os cabeçalhos exatos
+    const client = new StalkerClient(config);
+    const headers = client._headers(); 
+    
+    // 2. Construir o link do nosso Meta-Shield
+    const shieldUrl = `${protocol}://${host}/meta/${rawConfig}/${encodeURIComponent(req.params.id)}?type=${req.params.type}`;
 
+    // 3. Enviar a resposta com os cabeçalhos de autenticação embutidos
     res.json({ 
       streams: [{ 
         title: `▶️ ${data.name || 'Tocar Canal'}`,
         url: shieldUrl,
-        behaviorHints: { notWebReady: true } 
+        behaviorHints: { 
+          notWebReady: true,
+          proxyHeaders: {
+            request: {
+              'User-Agent': headers['User-Agent'],
+              'Cookie': headers['Cookie'],
+              'Referer': headers['Referer'],
+              'X-User-Agent': headers['X-User-Agent'],
+              'X-Forwarded-For': headers['X-Forwarded-For'] || '188.81.121.45'
+            }
+          }
+        } 
       }] 
     });
-  } catch (e) { res.status(500).json({ streams: [] }); }
+  } catch (e) { 
+    console.error('[STREAM ERROR]', e.message);
+    res.status(500).json({ streams: [] }); 
+  }
 });
 
 // ============================================================

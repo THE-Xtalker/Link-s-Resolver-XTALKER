@@ -156,24 +156,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
                 .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
   const origin = window.location.origin;
-  const installUrl = origin + '/' + b64 + '/manifest.json';
+const installUrl = origin + '/' + b64 + '/manifest.json';
+const testUrl    = origin + '/' + b64 + '/catalog/tv/stalker_tv.json';
 
-  // 1. Mostra o link em texto para poderes copiar
-  document.getElementById('installUrl').textContent = installUrl;
-  
-  // 2. Prepara o botão verde
-  const link = document.getElementById('installLink');
-  
-  // Se estiveres no telemóvel, o stremio:// abre a app. 
-  // Se estiveres no PC, o link normal (https) funciona melhor.
-  link.href = installUrl.replace(/^https?:/, 'stremio:');
-  link.target = "_blank";
-  
-  // 3. Torna a caixa verde visível
-  installBox.style.display = 'block';
-  
-  // 4. Faz scroll até à caixa verde
-  installBox.scrollIntoView({ behavior: 'smooth' });
+document.getElementById('installUrl').textContent = installUrl;
+
+const link = document.getElementById('installLink');
+link.href = installUrl.replace(/^https?:/, 'stremio:');
+link.target = '_blank';
+
+// novo: link de teste do catálogo
+const box = document.getElementById('installBox');
+if (!document.getElementById('testCat')) {
+  const p = document.createElement('div');
+  p.id = 'testCat';
+  p.style.marginTop = '14px';
+  p.innerHTML = '<label>URL de teste (abre no browser para depurar):</label><code></code>';
+  p.querySelector('code').textContent = testUrl;
+  box.appendChild(p);
+} else {
+  document.querySelector('#testCat code').textContent = testUrl;
+}
+
+installBox.style.display = 'block';
+installBox.scrollIntoView({ behavior: 'smooth' });
 });
 });
 </script>

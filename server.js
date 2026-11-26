@@ -1,11 +1,10 @@
 const express = require('express');
-const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const { StalkerClient } = require('./stalker');
 const { renderConfigPage } = require('./config-page');
 
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.6',
+  version: '1.0.8',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker',
   resources: ['catalog', 'stream'],
@@ -17,18 +16,28 @@ const manifest = {
   behaviorHints: { configurable: true }
 };
 
-const builder = new addonBuilder(manifest);
-
+// ---------- helpers ----------
+function decodeConfig(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch (e) {
+    console.error('[CONFIG DECODE ERROR]', e.message, '| raw:', String(raw).slice(0, 60));
+    return null;
+  }
+}
 function encItem(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
-function decItem(id) { return JSON.parse(Buffer.from(id, 'base64url').toString('utf8')); }
+function decItem(id) {
+  const clean = decodeURIComponent(id).replace(/\.json$/, '');
+  return JSON.parse(Buffer.from(clean, 'base64url').toString('utf8'));
+}
 
-builder.defineCatalogHandler(async ({ type, config }) => {
-  console.log(`\n=========================================`);
-  console.log(`[CATALOG] ⚠️ O STREMIO PEDIU O CATÁLOGO: ${type}`);
-  console.log(`=========================================`);
-  if (!config || !config.portalUrl) throw new Error('Configuração em falta');
-  console.log(`[CATALOG] A pedir: ${type}`);
-  
+// ---------- lógica ----------
+async function runCatalog(type, config) {
+  if (!config || !config.portalUrl) throw new Error('Configuração em falta (portalUrl)');
+  console.log(`[CATALOG] type=${type} | portal=${config.portalUrl}`);
   const client = new StalkerClient(config);
   await client.handshake();
 
@@ -40,16 +49,15 @@ builder.defineCatalogHandler(async ({ type, config }) => {
     for (let p = 1; p <= 5; p++) {
       promises.push(type === 'tv' ? client.getChannelsPage(genre, p) : client.getVodPage(genre, p));
     }
-    
     const results = await Promise.all(promises);
     const allItems = results.flat();
-    
+    console.log(`[CATALOG]  genre=${genre}  →  ${allItems.length} itens`);
+
     for (const item of allItems) {
       if (type === 'movie' && String(item.is_series) === '1') continue;
-      
       metas.push({
         id: encItem({ kind: type === 'tv' ? 'tv' : 'vod', cmd: item.cmd || item.id, name: item.name }),
-        type: type,
+        type,
         name: item.name || 'Sem nome',
         poster: item.logo || item.screenshot_uri || undefined,
         posterShape: type === 'tv' ? 'square' : 'poster',
@@ -57,41 +65,55 @@ builder.defineCatalogHandler(async ({ type, config }) => {
       });
     }
   }
+  console.log(`[CATALOG] total = ${metas.length}`);
   return { metas };
-});
+}
 
-builder.defineStreamHandler(async ({ id, config }) => {
-  if (!config || !config.portalUrl) throw new Error('Configuração em falta');
-
+async function runStream(id, config) {
+  if (!config || !config.portalUrl) throw new Error('Configuração em falta (portalUrl)');
   const data = decItem(id);
   const client = new StalkerClient(config);
   await client.handshake();
+  const url = data.kind === 'tv'
+    ? await client.createTvLink(data.cmd)
+    : await client.createVodLink(data.cmd);
+  return { streams: [{ title: data.name || 'Stream', url, behaviorHints: { notWebReady: false } }] };
+}
 
-  let url;
-  if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
-  else                    url = await client.createVodLink(data.cmd);
-
-  return {
-    streams: [{
-      title: data.name || 'Stream',
-      url,
-      behaviorHints: { notWebReady: false }
-    }]
-  };
-});
-
+// ---------- express ----------
 const app = express();
 app.use(express.json());
 
+app.use((req, _res, next) => {
+  console.log(`[${req.method}] ${req.originalUrl}`);
+  next();
+});
+
+// CORS + preflight
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.get('/health', (_req, res) => res.send('ok'));
 app.get('/configure', (_req, res) => res.type('html').send(renderConfigPage()));
+app.get('/:config/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/', (_req, res) => res.redirect('/configure'));
 
+// debug: descodifica e devolve o config
+app.get('/debug/:config', (req, res) => {
+  res.json({ raw: req.params.config, decoded: decodeConfig(req.params.config) });
+});
+
+// validate (formulário)
 app.post('/api/validate', async (req, res) => {
   try {
     const client = new StalkerClient(req.body);
     await client.handshake();
-    const tvGenres = await client.getGenres('itv').catch(() => []);
+    const tvGenres  = await client.getGenres('itv').catch(() => []);
     const vodGenres = await client.getVodCategories().catch(() => []);
     res.json({ ok: true, tvGenres, vodGenres });
   } catch (err) {
@@ -99,19 +121,49 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
-// ==========================================
-// 👇 ESTA É A LINHA QUE RESOLVE O ERRO 404 👇
-// Intercetamos o pedido do manifesto antes do SDK
-// ==========================================
-app.get('/:config/manifest.json', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'application/json');
+// ---------- manifest ----------
+const sendManifest = (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.json(manifest);
-});
+};
+app.get('/manifest.json', sendManifest);
+app.get('/:config/manifest.json', sendManifest);
 
-// O SDK trata do catálogo e dos streams
-const addonRouter = getRouter(builder.getInterface());
-app.use('/', addonRouter);
+// ---------- catálogo ----------
+const catalogRoute = (fromPath) => async (req, res) => {
+  try {
+    const raw = fromPath ? req.params.config : req.query.config;
+    const config = decodeConfig(raw);
+    const result = await runCatalog(req.params.type, config);
+    res.json(result);
+  } catch (e) {
+    console.error('[CATALOG ERROR]', e.message);
+    res.status(500).json({ err: e.message, metas: [] });
+  }
+};
+app.get('/:config/catalog/:type/:id.json', catalogRoute(true));
+app.get('/catalog/:type/:id.json',          catalogRoute(false));
+
+// ---------- stream ----------
+const streamRoute = (fromPath) => async (req, res) => {
+  try {
+    const raw = fromPath ? req.params.config : req.query.config;
+    const config = decodeConfig(raw);
+    const result = await runStream(req.params.id, config);
+    res.json(result);
+  } catch (e) {
+    console.error('[STREAM ERROR]', e.message);
+    res.status(500).json({ err: e.message, streams: [] });
+  }
+};
+app.get('/:config/stream/:type/:id.json', streamRoute(true));
+app.get('/stream/:type/:id.json',         streamRoute(false));
+
+// 404 informativo
+app.use((req, res) => {
+  console.warn(`[404] ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ err: 'Not found', path: req.path });
+});
 
 const PORT = process.env.PORT || 7000;
 app.listen(PORT, () => console.log('Addon a correr na porta ' + PORT));

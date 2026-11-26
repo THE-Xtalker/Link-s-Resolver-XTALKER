@@ -136,12 +136,21 @@ class StalkerClient {
   }
 
   async createTvLink(cmd) {
-    const url = `${this.apiBase}type=itv&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-0`;
-    const r = await this.http.get(url, { headers: this._headers() });
-    const js = r.data && r.data.js;
-    if (!js || !js.cmd) throw new Error('create_link falhou');
-    return js.cmd.split(' ').pop();
+  const url = `${this.apiBase}type=itv&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-0`;
+  const r = await this.http.get(url, { headers: this._headers() });
+  const js = r.data && r.data.js;
+  if (!js || !js.cmd) throw new Error('create_link falhou');
+  
+  let finalUrl = js.cmd.split(' ').pop();
+  
+  // 👇 O TRUQUE ESTÁ AQUI 👇
+  // Força o Stremio a ler como HLS (infinito) em vez de um clipe de 33s
+  if (finalUrl.includes('extension=ts')) {
+    finalUrl = finalUrl.replace('extension=ts', 'extension=m3u8');
   }
+  
+  return finalUrl;
+}
 
   async createVodLink(cmd) {
     const url = `${this.apiBase}type=vod&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&JsHttpRequest=1-0`;

@@ -10,7 +10,7 @@ class StalkerClient {
     this.sn = cfg.sn || '';
     this.deviceId = cfg.deviceId || '';
     this.deviceId2 = cfg.deviceId2 || '';
-    this.signature = cfg.signature || '';
+    this.signature = cfg.signature || '88e76854';
     this.proxyUrl = cfg.proxyUrl || '';
     this.token = null;
     this.apiBase = null;
@@ -37,13 +37,17 @@ class StalkerClient {
     const deviceId = this.deviceId || crypto.createHash('md5').update(this.mac).digest('hex').toUpperCase();
     const shortHash = crypto.createHash('md5').update(this.mac).digest('hex').substring(0, 13).toUpperCase();
     const serialNumber = this.sn || `8CA3${shortHash.substring(4)}`;
-    
+    const fakeResidencialIP = '188.81.121.45'; // TRUQUE DO STALKERENGINE
+
     const h = {
       'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
-      'X-User-Agent': `Model: MAG250; SW: 2.18-r14-pub-250; STB_active: true; Device ID: ${deviceId}; Device ID 2: ${this.deviceId2 || deviceId}; Signature: ${this.signature || '88e76854'}; SN: ${serialNumber}`,
+      'X-User-Agent': `Model: MAG250; SW: 2.18-r14-pub-250; STB_active: true; Device ID: ${deviceId}; Device ID 2: ${this.deviceId2 || deviceId}; Signature: ${this.signature}; SN: ${serialNumber}`,
       'Referer': `${this.portal}/c/`,
       'Accept': 'application/json, text/javascript, */*; q=0.01',
       'X-Requested-With': 'XMLHttpRequest',
+      'X-Forwarded-For': fakeResidencialIP,
+      'X-Real-IP': fakeResidencialIP,
+      'Client-IP': fakeResidencialIP,
       'Cookie': `mac=${encodeURIComponent(this.mac)}; stb_lang=en; timezone=Europe/Lisbon;`
     };
     if (this.token) {
@@ -54,24 +58,27 @@ class StalkerClient {
   }
 
   async handshake() {
-    // Tenta os 4 caminhos possíveis para portais Stalker
-    const paths = ['/c/portal.php', '/portal.php', '/server/load.php', '/stalker_portal/server/load.php'];
+    const baseUrl = this.portal.replace(/\/c$/, '');
+    // Caminhos modernos e clássicos juntos para máxima compatibilidade
+    const paths = [
+        '/c/portal.php', '/portal.php', '/server/load.php', '/stalker_portal/server/load.php',
+        '/stalker_portal/c/portal.php'
+    ];
     
     for (const path of paths) {
       try {
-        const baseUrl = this.portal.replace(/\/c$/, '');
         const fullUrl = `${baseUrl}${path}?type=stb&action=handshake&mac=${encodeURIComponent(this.mac)}&JsHttpRequest=1-0`;
         const r = await this.http.get(fullUrl, { headers: this._headers() });
         
         let data = r.data;
-        if (typeof data === 'string') data = JSON.parse(data.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+        if (typeof data === 'string') data = JSON.parse(data.replace(/\/\*[\s\S]*?\*\//g, "").trim()); // Limpa JSONP
         
         if (data && data.js && data.js.token) {
           this.token = data.js.token;
           this.apiBase = `${baseUrl}${path}?`;
           console.log(`[AUTH] Sucesso em: ${path}`);
           
-          // Obter perfil (obrigatório para alguns portais)
+          // Obter perfil (obrigatório)
           await this.http.get(`${this.apiBase}type=stb&action=get_profile&token=${this.token}&JsHttpRequest=1-0`, { headers: this._headers() });
           return this.token;
         }
@@ -79,7 +86,7 @@ class StalkerClient {
         // Continua para o próximo caminho
       }
     }
-    throw new Error('Handshake falhou em todos os caminhos. Verifica o MAC e o URL.');
+    throw new Error('Handshake falhou. O MAC está correto ou o portal bloqueou o IP?');
   }
 
   async getGenres(type) {
@@ -96,38 +103,19 @@ class StalkerClient {
     return (Array.isArray(data) ? data : Object.values(data)).map(g => ({ id: g.id, title: g.title || g.name }));
   }
 
-  // Paginação individual (usado no catálogo paralelo)
   async getChannelsPage(genreId, page = 1) {
-  const g = (!genreId || genreId === '*') ? '*' : genreId;
-  // Tentativa 1: get_ordered_list (padrão)
-  let url = `${this.apiBase}type=itv&action=get_ordered_list&genre=${g}&p=${page}&force_ch_link_check=0&JsHttpRequest=1-0`;
-  
-  try {
-    let r = await this.http.get(url, { headers: this._headers() });
-    let data = r.data?.js?.data || r.data?.js || [];
-    let items = Array.isArray(data) ? data : Object.values(data);
-    
-    // Tentativa 2: Se a tentativa 1 falhou, tenta get_all_channels (só na página 1)
-    if (items.length === 0 && page === 1) {
-      console.log(`[STALKER DEBUG] Lista vazia. A tentar get_all_channels...`);
-      url = `${this.apiBase}type=itv&action=get_all_channels&JsHttpRequest=1-0`;
-      r = await this.http.get(url, { headers: this._headers() });
-      data = r.data?.js?.data || r.data?.js || [];
-      items = Array.isArray(data) ? data : Object.values(data);
-    }
-
-    console.log(`[STALKER DEBUG] Pág ${page} | Gênero ${g} | Status ${r.status} | Canais ${items.length}`);
-    return items;
-  } catch (e) { 
-    console.error(`[STALKER ERROR] Falha ao obter canais:`, e.message);
-    return []; 
+    const g = (!genreId || genreId === '*') ? '*' : genreId;
+    const url = `${this.apiBase}type=itv&action=get_ordered_list&genre=${g}&p=${page}&force_ch_link_check=0&JsHttpRequest=1-0`;
+    try {
+      const r = await this.http.get(url, { headers: this._headers() });
+      const data = r.data?.js?.data || r.data?.js || [];
+      return Array.isArray(data) ? data : Object.values(data);
+    } catch (e) { return []; }
   }
-}
 
   async getVodPage(categoryId, page = 1) {
     let url = `${this.apiBase}type=vod&action=get_ordered_list&p=${page}&JsHttpRequest=1-0`;
     if (categoryId && categoryId !== '*') url += `&category=${categoryId}`;
-    
     try {
       const r = await this.http.get(url, { headers: this._headers() });
       const data = r.data?.js?.data || r.data?.js || [];
@@ -136,28 +124,25 @@ class StalkerClient {
   }
 
   async createTvLink(cmd) {
-  const url = `${this.apiBase}type=itv&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-0`;
-  const r = await this.http.get(url, { headers: this._headers() });
-  const js = r.data && r.data.js;
-  if (!js || !js.cmd) throw new Error('create_link falhou');
-  
-  let finalUrl = js.cmd.split(' ').pop();
-  
-  // 👇 O TRUQUE ESTÁ AQUI 👇
-  // Força o Stremio a ler como HLS (infinito) em vez de um clipe de 33s
-  if (finalUrl.includes('extension=ts')) {
-    finalUrl = finalUrl.replace('extension=ts', 'extension=m3u8');
+    const url = `${this.apiBase}type=itv&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-0`;
+    const r = await this.http.get(url, { headers: this._headers() });
+    const js = r.data && r.data.js;
+    if (!js || !js.cmd) throw new Error('create_link falhou');
+    return this._cleanUrl(js.cmd.split(' ').pop());
   }
-  
-  return finalUrl;
-}
 
   async createVodLink(cmd) {
     const url = `${this.apiBase}type=vod&action=create_link&cmd=${encodeURIComponent(cmd)}&series=&forced_storage=0&disable_ad=0&download=0&JsHttpRequest=1-0`;
     const r = await this.http.get(url, { headers: this._headers() });
     const js = r.data && r.data.js;
     if (!js || !js.cmd) throw new Error('create_link VOD falhou');
-    return js.cmd.split(' ').pop();
+    return this._cleanUrl(js.cmd.split(' ').pop());
+  }
+
+  _cleanUrl(url) {
+    if (!url) return url;
+    // Remove prefixos estranhos como "ffmpeg " que alguns portais enviam
+    return url.trim().replace(/^['"`]?(ffrt|ffmpeg|ffrt2|rtmp)['"`]?\s+/i, "").trim();
   }
 }
 

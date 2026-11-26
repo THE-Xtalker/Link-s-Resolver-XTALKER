@@ -74,10 +74,30 @@ async function runStream(id, config) {
   const data = decItem(id);
   const client = new StalkerClient(config);
   await client.handshake();
-  const url = data.kind === 'tv'
-    ? await client.createTvLink(data.cmd)
-    : await client.createVodLink(data.cmd);
-  return { streams: [{ title: data.name || 'Stream', url, behaviorHints: { notWebReady: false } }] };
+  
+  let url;
+  if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
+  else                    url = await client.createVodLink(data.cmd);
+
+  console.log(`[STREAM] URL obtido: ${url.substring(0, 50)}...`); // Para vermos nos logs que tipo de URL é
+
+  // Se o link for UDP, o Stremio não o abre sozinho. Vamos avisá-lo.
+  const isUdp = url.startsWith('udp://') || url.startsWith('rtp://');
+
+  return { 
+    streams: [{ 
+      title: data.name || 'Stream',
+      url: url,
+      // Isto força o Stremio a usar a app externa (VLC) se o player interno falhar
+      behaviorHints: { 
+        notWebReady: true 
+      },
+      // Isto envia os headers do teu cliente (User-Agent, Cookie) para o player
+      proxyHeaders: {
+        request: client._headers() 
+      }
+    }] 
+  };
 }
 
 // ---------- express ----------

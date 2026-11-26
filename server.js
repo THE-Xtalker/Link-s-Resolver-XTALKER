@@ -23,6 +23,9 @@ function encItem(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64
 function decItem(id) { return JSON.parse(Buffer.from(id, 'base64url').toString('utf8')); }
 
 builder.defineCatalogHandler(async ({ type, config }) => {
+  console.log(`\n=========================================`);
+  console.log(`[CATALOG] ⚠️ O STREMIO PEDIU O CATÁLOGO: ${type}`);
+  console.log(`=========================================`);
   if (!config || !config.portalUrl) throw new Error('Configuração em falta');
   console.log(`[CATALOG] A pedir: ${type}`);
   

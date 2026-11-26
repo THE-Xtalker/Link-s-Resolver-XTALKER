@@ -98,24 +98,28 @@ class StalkerClient {
 
   // Paginação individual (usado no catálogo paralelo)
   async getChannelsPage(genreId, page = 1) {
-  // Força a categoria '*' se estiver vazia, para o portal devolver os canais todos
   const g = (!genreId || genreId === '*') ? '*' : genreId;
-  let url = `${this.apiBase}type=itv&action=get_ordered_list&genre=${g}&p=${page}&JsHttpRequest=1-0`;
+  // Tentativa 1: get_ordered_list (padrão)
+  let url = `${this.apiBase}type=itv&action=get_ordered_list&genre=${g}&p=${page}&force_ch_link_check=0&JsHttpRequest=1-0`;
   
   try {
-    const r = await this.http.get(url, { headers: this._headers() });
+    let r = await this.http.get(url, { headers: this._headers() });
+    let data = r.data?.js?.data || r.data?.js || [];
+    let items = Array.isArray(data) ? data : Object.values(data);
     
-    // LOGS DE DIAGNÓSTICO: Vão aparecer no Render
-    console.log(`[STALKER DEBUG] URL: ${url}`);
-    console.log(`[STALKER DEBUG] Status: ${r.status}`);
-    // Mostra os primeiros 150 caracteres da resposta do portal
-    const rawResponse = JSON.stringify(r.data).substring(0, 150);
-    console.log(`[STALKER DEBUG] Resposta do portal: ${rawResponse}...`);
+    // Tentativa 2: Se a tentativa 1 falhou, tenta get_all_channels (só na página 1)
+    if (items.length === 0 && page === 1) {
+      console.log(`[STALKER DEBUG] Lista vazia. A tentar get_all_channels...`);
+      url = `${this.apiBase}type=itv&action=get_all_channels&JsHttpRequest=1-0`;
+      r = await this.http.get(url, { headers: this._headers() });
+      data = r.data?.js?.data || r.data?.js || [];
+      items = Array.isArray(data) ? data : Object.values(data);
+    }
 
-    const data = r.data?.js?.data || r.data?.js || [];
-    return Array.isArray(data) ? data : Object.values(data);
+    console.log(`[STALKER DEBUG] Pág ${page} | Gênero ${g} | Status ${r.status} | Canais ${items.length}`);
+    return items;
   } catch (e) { 
-    console.error(`[STALKER ERROR] Falha ao obter canais (página ${page}):`, e.message);
+    console.error(`[STALKER ERROR] Falha ao obter canais:`, e.message);
     return []; 
   }
 }

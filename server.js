@@ -4,10 +4,10 @@ const { renderConfigPage } = require('./config-page');
 
 const manifest = {
   id: 'org.stalker.resolver',
-  version: '1.0.8',
+  version: '1.0.9',
   name: 'Stalker Resolver',
   description: 'Resolvedor de links para portais Stalker',
-  resources: ['catalog', 'stream'],
+  resources: ['catalog', 'stream', 'meta'], // 👈 ADICIONADO 'meta' AQUI
   types: ['tv', 'movie'],
   catalogs: [
     { type: 'tv',    id: 'stalker_tv',     name: 'Stalker — Canais TV' },
@@ -24,7 +24,7 @@ function decodeConfig(raw) {
     const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
     return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
   } catch (e) {
-    console.error('[CONFIG DECODE ERROR]', e.message, '| raw:', String(raw).slice(0, 60));
+    console.error('[CONFIG DECODE ERROR]', e.message);
     return null;
   }
 }
@@ -69,35 +69,37 @@ async function runCatalog(type, config) {
   return { metas };
 }
 
+// 👇 NOVA FUNÇÃO PARA RESOLVER O GATO E MOSTRAR O BOTÃO PLAY 👇
+async function runMeta(type, id) {
+  const data = decItem(id);
+  return {
+    meta: {
+      id: id,
+      type: type,
+      name: data.name || 'Canal',
+      description: 'Canal em Direto',
+      videos: [
+        {
+          id: id,
+          title: data.name || 'Tocar Canal',
+          released: new Date().toISOString()
+        }
+      ]
+    }
+  };
+}
+
 async function runStream(id, config) {
   if (!config || !config.portalUrl) throw new Error('Configuração em falta (portalUrl)');
   const data = decItem(id);
   const client = new StalkerClient(config);
   await client.handshake();
-  
-  let url;
-  if (data.kind === 'tv') url = await client.createTvLink(data.cmd);
-  else                    url = await client.createVodLink(data.cmd);
-
-  console.log(`[STREAM] URL obtido: ${url.substring(0, 50)}...`); // Para vermos nos logs que tipo de URL é
-
-  // Se o link for UDP, o Stremio não o abre sozinho. Vamos avisá-lo.
-  const isUdp = url.startsWith('udp://') || url.startsWith('rtp://');
-
-  return { 
-    streams: [{ 
-      title: data.name || 'Stream',
-      url: url,
-      // Isto força o Stremio a usar a app externa (VLC) se o player interno falhar
-      behaviorHints: { 
-        notWebReady: true 
-      },
-      // Isto envia os headers do teu cliente (User-Agent, Cookie) para o player
-      proxyHeaders: {
-        request: client._headers() 
-      }
-    }] 
-  };
+  const url = data.kind === 'tv'
+    ? await client.createTvLink(data.cmd)
+    : await client.createVodLink(data.cmd);
+    
+  console.log(`[STREAM] URL obtido: ${url}`);
+  return { streams: [{ title: data.name || 'Stream', url, behaviorHints: { notWebReady: true } }] };
 }
 
 // ---------- express ----------
@@ -109,7 +111,6 @@ app.use((req, _res, next) => {
   next();
 });
 
-// CORS + preflight
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
@@ -123,12 +124,10 @@ app.get('/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/:config/configure', (_req, res) => res.type('html').send(renderConfigPage()));
 app.get('/', (_req, res) => res.redirect('/configure'));
 
-// debug: descodifica e devolve o config
 app.get('/debug/:config', (req, res) => {
   res.json({ raw: req.params.config, decoded: decodeConfig(req.params.config) });
 });
 
-// validate (formulário)
 app.post('/api/validate', async (req, res) => {
   try {
     const client = new StalkerClient(req.body);
@@ -141,7 +140,6 @@ app.post('/api/validate', async (req, res) => {
   }
 });
 
-// ---------- manifest ----------
 const sendManifest = (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.json(manifest);
@@ -149,7 +147,6 @@ const sendManifest = (_req, res) => {
 app.get('/manifest.json', sendManifest);
 app.get('/:config/manifest.json', sendManifest);
 
-// ---------- catálogo ----------
 const catalogRoute = (fromPath) => async (req, res) => {
   try {
     const raw = fromPath ? req.params.config : req.query.config;
@@ -164,7 +161,19 @@ const catalogRoute = (fromPath) => async (req, res) => {
 app.get('/:config/catalog/:type/:id.json', catalogRoute(true));
 app.get('/catalog/:type/:id.json',          catalogRoute(false));
 
-// ---------- stream ----------
+// 👇 NOVA ROTA META AQUI 👇
+const metaRoute = (fromPath) => async (req, res) => {
+  try {
+    const result = await runMeta(req.params.type, req.params.id);
+    res.json(result);
+  } catch (e) {
+    console.error('[META ERROR]', e.message);
+    res.status(500).json({ err: e.message });
+  }
+};
+app.get('/:config/meta/:type/:id.json', metaRoute(true));
+app.get('/meta/:type/:id.json',         metaRoute(false));
+
 const streamRoute = (fromPath) => async (req, res) => {
   try {
     const raw = fromPath ? req.params.config : req.query.config;
@@ -179,7 +188,6 @@ const streamRoute = (fromPath) => async (req, res) => {
 app.get('/:config/stream/:type/:id.json', streamRoute(true));
 app.get('/stream/:type/:id.json',         streamRoute(false));
 
-// 404 informativo
 app.use((req, res) => {
   console.warn(`[404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({ err: 'Not found', path: req.path });
